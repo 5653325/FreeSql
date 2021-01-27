@@ -144,10 +144,7 @@ namespace FreeSql
             return _filters.TryGetValue(filterName, out var tryfi) ? tryfi.IsEnabled : false;
         }
 
-        ~DataFilter()
-        {
-            this.Dispose();
-        }
+        ~DataFilter() => this.Dispose();
         public void Dispose()
         {
             _filters.Clear();
@@ -156,8 +153,19 @@ namespace FreeSql
 
     public class FluentDataFilter : IDisposable
     {
-
-        internal List<(Type type, string name, LambdaExpression exp)> _filters = new List<(Type type, string name, LambdaExpression exp)>();
+        internal class FilterInfo
+        {
+            public Type type { get; }
+            public string name { get; }
+            public LambdaExpression exp { get; }
+            public FilterInfo(Type type, string name, LambdaExpression exp)
+            {
+                this.type = type;
+                this.name = name;
+                this.exp = exp;
+            }
+        }
+        internal List<FilterInfo> _filters = new List<FilterInfo>();
 
         public FluentDataFilter Apply<TEntity>(string filterName, Expression<Func<TEntity, bool>> filterAndValidateExp) where TEntity : class
         {
@@ -165,14 +173,11 @@ namespace FreeSql
                 throw new ArgumentNullException(nameof(filterName));
             if (filterAndValidateExp == null) return this;
 
-            _filters.Add((typeof(TEntity), filterName, filterAndValidateExp));
+            _filters.Add(new FilterInfo(typeof(TEntity), filterName, filterAndValidateExp));
             return this;
         }
 
-        ~FluentDataFilter()
-        {
-            this.Dispose();
-        }
+        ~FluentDataFilter() => this.Dispose();
         public void Dispose()
         {
             _filters.Clear();

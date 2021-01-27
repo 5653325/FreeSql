@@ -1,73 +1,73 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Linq.Expressions;
+using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 
+#if net40
+#else
 namespace FreeSql
 {
     partial class DbContext
     {
-
-        async public virtual Task<int> SaveChangesAsync()
+        async public virtual Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {
-            await ExecCommandAsync();
-            _uow?.Commit();
-            var ret = _affrows;
-            _affrows = 0;
-            return ret;
+            await FlushCommandAsync(cancellationToken);
+            return SaveChangesSuccess();
         }
 
-        static Dictionary<Type, Dictionary<string, Func<object, object[], Task<int>>>> _dicExecCommandDbContextBetchAsync = new Dictionary<Type, Dictionary<string, Func<object, object[], Task<int>>>>();
-        async internal Task ExecCommandAsync()
+        static ConcurrentDictionary<Type, ConcurrentDictionary<string, Func<object, object[], CancellationToken, Task<int>>>> _dicFlushCommandDbSetBatchAsync = new ConcurrentDictionary<Type, ConcurrentDictionary<string, Func<object, object[], CancellationToken, Task<int>>>>();
+        async internal Task FlushCommandAsync(CancellationToken cancellationToken)
         {
-            if (isExecCommanding) return;
-            if (_actions.Any() == false) return;
-            isExecCommanding = true;
+            if (isFlushCommanding) return;
+            if (_prevCommands.Any() == false) return;
+            isFlushCommanding = true;
 
-            ExecCommandInfo oldinfo = null;
+            PrevCommandInfo oldinfo = null;
             var states = new List<object>();
 
-            Func<string, Task<int>> dbContextBetch = methodName =>
+            Task<int> dbsetBatch(string method)
             {
-                if (_dicExecCommandDbContextBetchAsync.TryGetValue(oldinfo.stateType, out var trydic) == false)
-                    trydic = new Dictionary<string, Func<object, object[], Task<int>>>();
-                if (trydic.TryGetValue(methodName, out var tryfunc) == false)
-                {
-                    var arrType = oldinfo.stateType.MakeArrayType();
-                    var dbsetType = oldinfo.dbSet.GetType().BaseType;
-                    var dbsetTypeMethod = dbsetType.GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Instance, null, new[] { arrType }, null);
+                var tryfunc = _dicFlushCommandDbSetBatchAsync
+                    .GetOrAdd(oldinfo.stateType, stateType => new ConcurrentDictionary<string, Func<object, object[], CancellationToken, Task<int>>>())
+                    .GetOrAdd(method, methodName =>
+                    {
+                        var arrType = oldinfo.stateType.MakeArrayType();
+                        var dbsetType = oldinfo.dbSet.GetType().BaseType;
+                        var dbsetTypeMethod = dbsetType.GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Instance, null, new[] { arrType, typeof(CancellationToken) }, null);
 
-                    var returnTarget = Expression.Label(typeof(Task<int>));
-                    var parm1DbSet = Expression.Parameter(typeof(object));
-                    var parm2Vals = Expression.Parameter(typeof(object[]));
-                    var var1Vals = Expression.Variable(arrType);
-                    tryfunc = Expression.Lambda<Func<object, object[], Task<int>>>(Expression.Block(
-                        new[] { var1Vals },
-                        Expression.Assign(var1Vals, Expression.Convert(global::FreeSql.Internal.Utils.GetDataReaderValueBlockExpression(arrType, parm2Vals), arrType)),
-                        Expression.Return(returnTarget, Expression.Call(Expression.Convert(parm1DbSet, dbsetType), dbsetTypeMethod, var1Vals)),
-                        Expression.Label(returnTarget, Expression.Default(typeof(Task<int>)))
-                    ), new[] { parm1DbSet, parm2Vals }).Compile();
-                    trydic.Add(methodName, tryfunc);
-                }
-                return tryfunc(oldinfo.dbSet, states.ToArray());
-            };
-            Func<Task> funcDelete = async () =>
+                        var returnTarget = Expression.Label(typeof(Task<int>));
+                        var parm1DbSet = Expression.Parameter(typeof(object));
+                        var parm2Vals = Expression.Parameter(typeof(object[]));
+                        var parm3CancelToken = Expression.Parameter(typeof(CancellationToken));
+                        var var1Vals = Expression.Variable(arrType);
+                        return Expression.Lambda<Func<object, object[], CancellationToken, Task<int>>>(Expression.Block(
+                            new[] { var1Vals },
+                            Expression.Assign(var1Vals, Expression.Convert(global::FreeSql.Internal.Utils.GetDataReaderValueBlockExpression(arrType, parm2Vals), arrType)),
+                            Expression.Return(returnTarget, Expression.Call(Expression.Convert(parm1DbSet, dbsetType), dbsetTypeMethod, var1Vals, parm3CancelToken)),
+                            Expression.Label(returnTarget, Expression.Default(typeof(Task<int>)))
+                        ), new[] { parm1DbSet, parm2Vals, parm3CancelToken }).Compile();
+                    });
+                return tryfunc(oldinfo.dbSet, states.ToArray(), cancellationToken);
+            }
+            async Task funcDelete()
             {
-                _affrows += await dbContextBetch("DbContextBetchRemoveAsync");
+                _affrows += await dbsetBatch("DbContextBatchRemoveAsync");
+                states.Clear();
+            }
+            async Task funcInsert()
+            {
+                _affrows += await dbsetBatch("DbContextBatchAddAsync");
                 states.Clear();
             };
-            Func<Task> funcInsert = async () =>
-            {
-                _affrows += await dbContextBetch("DbContextBetchAddAsync");
-                states.Clear();
-            };
-            Func<bool, Task> funcUpdate = async (isLiveUpdate) =>
+            async Task funcUpdate(bool isLiveUpdate)
             {
                 var affrows = 0;
-                if (isLiveUpdate) affrows = await dbContextBetch("DbContextBetchUpdateNowAsync");
-                else affrows = await dbContextBetch("DbContextBetchUpdateAsync");
+                if (isLiveUpdate) affrows = await dbsetBatch("DbContextBatchUpdateNowAsync");
+                else affrows = await dbsetBatch("DbContextBatchUpdateAsync");
                 if (affrows == -999)
                 { //最后一个元素已被删除
                     states.RemoveAt(states.Count - 1);
@@ -89,37 +89,38 @@ namespace FreeSql
                 }
             };
 
-            while (_actions.Any() || states.Any())
+            while (_prevCommands.Any() || states.Any())
             {
-                var info = _actions.Any() ? _actions.Dequeue() : null;
+                var info = _prevCommands.Any() ? _prevCommands.Dequeue() : null;
                 if (oldinfo == null) oldinfo = info;
                 var isLiveUpdate = false;
 
-                if (_actions.Any() == false && states.Any() ||
-                    info != null && oldinfo.actionType != info.actionType ||
-                    info != null && oldinfo.stateType != info.stateType)
+                if (_prevCommands.Any() == false && states.Any() ||
+                    info != null && oldinfo.changeType != info.changeType ||
+                    info != null && oldinfo.stateType != info.stateType ||
+                    info != null && oldinfo.entityType != info.entityType)
                 {
 
-                    if (info != null && oldinfo.actionType == info.actionType && oldinfo.stateType == info.stateType)
+                    if (info != null && oldinfo.changeType == info.changeType && oldinfo.stateType == info.stateType && oldinfo.entityType == info.entityType)
                     {
                         //最后一个，合起来发送
                         states.Add(info.state);
                         info = null;
                     }
 
-                    switch (oldinfo.actionType)
+                    switch (oldinfo.changeType)
                     {
-                        case ExecCommandInfoType.Insert:
+                        case EntityChangeType.Insert:
                             await funcInsert();
                             break;
-                        case ExecCommandInfoType.Delete:
+                        case EntityChangeType.Delete:
                             await funcDelete();
                             break;
                     }
                     isLiveUpdate = true;
                 }
 
-                if (isLiveUpdate || oldinfo.actionType == ExecCommandInfoType.Update)
+                if (isLiveUpdate || oldinfo.changeType == EntityChangeType.Update)
                 {
                     if (states.Any())
                         await funcUpdate(isLiveUpdate);
@@ -131,7 +132,8 @@ namespace FreeSql
                     oldinfo = info;
                 }
             }
-            isExecCommanding = false;
+            isFlushCommanding = false;
         }
     }
 }
+#endif

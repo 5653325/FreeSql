@@ -96,22 +96,22 @@ namespace FreeSql.Tests.Oracle
             //SELECT a.`Id`, a.`Parent_id`, a.`Ddd`, a.`Name` 
             //FROM `Tag` a 
             //WHERE (exists(SELECT 1 
-            //	FROM `Tag` t 
-            //	LEFT JOIN `Tag` t__Parent ON t__Parent.`Id` = t.`Parent_id` 
-            //	WHERE (t__Parent.`Id` = 10) AND (t.`Parent_id` = a.`Id`) 
-            //	limit 0,1))
+            //    FROM `Tag` t 
+            //    LEFT JOIN `Tag` t__Parent ON t__Parent.`Id` = t.`Parent_id` 
+            //    WHERE (t__Parent.`Id` = 10) AND (t.`Parent_id` = a.`Id`) 
+            //    limit 0,1))
 
             //ManyToMany
             var t2 = g.oracle.Select<Song>().Where(s => s.Tags.AsSelect().Any(t => t.Name == "国语")).ToSql();
             //SELECT a.`Id`, a.`Create_time`, a.`Is_deleted`, a.`Title`, a.`Url` 
             //FROM `Song` a
             //WHERE(exists(SELECT 1
-            //	FROM `Song_tag` Mt_Ms
-            //	WHERE(Mt_Ms.`Song_id` = a.`Id`) AND(exists(SELECT 1
-            //		FROM `Tag` t
-            //		WHERE(t.`Name` = '国语') AND(t.`Id` = Mt_Ms.`Tag_id`)
-            //		limit 0, 1))
-            //	limit 0, 1))
+            //    FROM `Song_tag` Mt_Ms
+            //    WHERE(Mt_Ms.`Song_id` = a.`Id`) AND(exists(SELECT 1
+            //        FROM `Tag` t
+            //        WHERE(t.`Name` = '国语') AND(t.`Id` = Mt_Ms.`Tag_id`)
+            //        limit 0, 1))
+            //    limit 0, 1))
         }
 
         [Fact]
@@ -146,6 +146,19 @@ namespace FreeSql.Tests.Oracle
             public string name { get; set; } //这是join表的属性
             public int ParentId { get; set; } //这是join表的属性
         }
+        class TestDto2
+        {
+            public int id { get; set; }
+            public string name { get; set; } //这是join表的属性
+            public int ParentId { get; set; } //这是join表的属性
+
+            public TestDto2() { }
+            public TestDto2(int id, string name)
+            {
+                this.id = id;
+                this.name = name;
+            }
+        }
         [Fact]
         public void ToList()
         {
@@ -160,12 +173,76 @@ namespace FreeSql.Tests.Oracle
             var testDto33 = select.LeftJoin(a => a.Type.Guid == a.TypeGuid).Limit(10).ToList(a => new TestDto { });
             var testDto44 = select.LeftJoin(a => a.Type.Guid == a.TypeGuid).Limit(10).ToList(a => new TestDto() { });
 
+            var testDto211 = select.Limit(10).ToList(a => new TestDto2(a.Id, a.Title));
+            var testDto212 = select.Limit(10).ToList(a => new TestDto2());
+            var testDto213 = select.Limit(10).ToList(a => new TestDto2 { });
+            var testDto214 = select.Limit(10).ToList(a => new TestDto2() { });
+            var testDto215 = select.Limit(10).ToList<TestDto2>();
+
+            var testDto2211 = select.LeftJoin(a => a.Type.Guid == a.TypeGuid).Limit(10).ToList(a => new TestDto2(a.Id, a.Title));
+            var testDto2222 = select.LeftJoin(a => a.Type.Guid == a.TypeGuid).Limit(10).ToList(a => new TestDto2());
+            var testDto2233 = select.LeftJoin(a => a.Type.Guid == a.TypeGuid).Limit(10).ToList(a => new TestDto2 { });
+            var testDto2244 = select.LeftJoin(a => a.Type.Guid == a.TypeGuid).Limit(10).ToList(a => new TestDto2() { });
+            var testDto2255 = select.LeftJoin(a => a.Type.Guid == a.TypeGuid).Limit(10).ToList<TestDto2>();
+
             g.oracle.Insert<TestGuidIdToList>().AppendData(new TestGuidIdToList()).ExecuteAffrows();
             var testGuidId5 = g.oracle.Select<TestGuidIdToList>().ToList();
             var testGuidId6 = g.oracle.Select<TestGuidIdToList>().ToList(a => a.id);
 
             var t11 = select.Where(a => a.Type.Name.Length > 0).ToList(true);
             var t21 = select.Where(a => a.Type.Parent.Name.Length > 0).ToList(true);
+
+            g.oracle.Delete<District>().Where("1=1").ExecuteAffrows();
+            var repo = g.oracle.GetRepository<District>();
+            repo.DbContextOptions.EnableAddOrUpdateNavigateList = true;
+            repo.Insert(new District
+            {
+                Code = "001",
+                Name = "001_name",
+                Childs = new List<District>(new[] {
+                    new District{
+                        Code = "001_01",
+                        Name = "001_01_name"
+                    },
+                    new District{
+                        Code = "001_02",
+                        Name = "001_02_name"
+                    }
+                })
+            });
+            var ddd = g.oracle.Select<District>().LeftJoin(d => d.ParentCode == d.Parent.Code).ToTreeList();
+            Assert.Single(ddd);
+            Assert.Equal(2, ddd[0].Childs.Count);
+        }
+        public class District
+        {
+            [Column(IsPrimary = true, StringLength = 6)]
+            public string Code { get; set; }
+
+            [Column(StringLength = 20, IsNullable = false)]
+            public string Name { get; set; }
+
+            [Column(StringLength = 6)]
+            public string ParentCode { get; set; }
+
+            [Navigate(nameof(ParentCode))]
+            public District Parent { get; set; }
+
+            [Navigate(nameof(ParentCode))]
+            public List<District> Childs { get; set; }
+        }
+        [Fact]
+        public void ToDictionary()
+        {
+            g.oracle.Insert(new Topic { Title = "xxx" }).ExecuteAffrows();
+            var testDto1 = select.Limit(10).ToDictionary(a => a.Id);
+            var testDto2 = select.Limit(10).ToDictionary(a => a.Id, a => new { a.Id, a.Title });
+
+            var repo = g.oracle.GetRepository<Topic>();
+            var dic = repo.Select.Limit(10).ToDictionary(a => a.Id);
+            var first = dic.First().Value;
+            first.Clicks++;
+            repo.Update(first);
         }
         class TestGuidIdToList
         {
@@ -648,10 +725,12 @@ namespace FreeSql.Tests.Oracle
             .OrderByDescending(a => a.Count())
             .Offset(10)
             .Limit(2)
+            .Count(out var trycount)
             .ToList(a => new
             {
                 a.Key.tt2,
                 cou1 = a.Count(),
+                cou2 = a.Count(a.Value.Item3.Id),
                 arg1 = a.Avg(a.Key.mod4),
                 ccc2 = a.Key.tt2 ?? "now()",
                 //ccc = Convert.ToDateTime("now()"), partby = Convert.ToDecimal("sum(num) over(PARTITION BY server_id,os,rid,chn order by id desc)")
@@ -661,13 +740,19 @@ namespace FreeSql.Tests.Oracle
             var testpid1 = g.oracle.Insert<TestTypeInfo>().AppendData(new TestTypeInfo { Name = "Name" + DateTime.Now.ToString("yyyyMMddHHmmss") }).ExecuteIdentity();
             g.oracle.Insert<TestInfo>().AppendData(new TestInfo { Title = "Title" + DateTime.Now.ToString("yyyyMMddHHmmss"), CreateTime = DateTime.Now, TypeGuid = (int)testpid1 }).ExecuteAffrows();
 
+            var fkfjfj = select.GroupBy(a => a.Title)
+                .ToList(a => a.Sum(a.Value.TypeGuid));
+            var fkfjfj2 = select.GroupBy(a => a.Title)
+                .Page(2, 10)
+                .OrderBy(a => a.Key)
+                .ToList(a => a.Sum(a.Value.TypeGuid));
+
             var aggsql1 = select
                 .GroupBy(a => a.Title)
                 .ToSql(b => new
                 {
                     b.Key,
                     cou = b.Count(),
-                    sum = b.Sum(b.Key),
                     sum2 = b.Sum(b.Value.TypeGuid)
                 });
             var aggtolist1 = select
@@ -676,7 +761,14 @@ namespace FreeSql.Tests.Oracle
                 {
                     b.Key,
                     cou = b.Count(),
-                    sum = b.Sum(b.Key),
+                    sum2 = b.Sum(b.Value.TypeGuid)
+                });
+            var aggtolist11 = select
+                .GroupBy(a => a.Title)
+                .ToDictionary(b => new
+                {
+                    b.Key,
+                    cou = b.Count(),
                     sum2 = b.Sum(b.Value.TypeGuid)
                 });
 
@@ -688,7 +780,6 @@ namespace FreeSql.Tests.Oracle
                     b.Key.yyyy,
 
                     cou = b.Count(),
-                    sum = b.Sum(b.Key.yyyy),
                     sum2 = b.Sum(b.Value.TypeGuid)
                 });
             var aggtolist2 = select
@@ -699,7 +790,16 @@ namespace FreeSql.Tests.Oracle
                     b.Key.yyyy,
 
                     cou = b.Count(),
-                    sum = b.Sum(b.Key.yyyy),
+                    sum2 = b.Sum(b.Value.TypeGuid)
+                });
+            var aggtolist22 = select
+                .GroupBy(a => new { a.Title, yyyy = string.Concat(a.CreateTime.Year, '-', a.CreateTime.Month) })
+                .ToDictionary(b => new
+                {
+                    b.Key.Title,
+                    b.Key.yyyy,
+                    b.Key,
+                    cou = b.Count(),
                     sum2 = b.Sum(b.Value.TypeGuid)
                 });
 
@@ -709,7 +809,6 @@ namespace FreeSql.Tests.Oracle
                 {
                     b.Key,
                     cou = b.Count(),
-                    sum = b.Sum(b.Key),
                     sum2 = b.Sum(b.Value.TypeGuid),
                     sum3 = b.Sum(b.Value.Type.Parent.Id)
                 });
@@ -717,13 +816,23 @@ namespace FreeSql.Tests.Oracle
         [Fact]
         public void ToAggregate()
         {
-            var sql = select.ToAggregate(a => new { sum = a.Sum(a.Key.Id + 11.11), avg = a.Avg(a.Key.Id), count = a.Count(), max = a.Max(a.Key.Id), min = a.Min(a.Key.Id) });
+            var sql = select.ToAggregate(a => new { sum = a.Sum(a.Key.Id + 11.11), count = a.Count(), max = a.Max(a.Key.Id), min = a.Min(a.Key.Id) });
         }
         [Fact]
         public void OrderBy()
         {
             var sql = select.Offset(10).OrderBy(a => new Random().NextDouble()).ToList();
         }
+        [Fact]
+        public void OrderByRandom()
+        {
+            var t1 = select.OrderByRandom().Limit(10).ToSql("1");
+            Assert.Equal(@"SELECT  t.* FROM (SELECT 1 
+FROM ""TB_TOPIC22"" a 
+ORDER BY dbms_random.value) t WHERE ROWNUM < 11", t1);
+            var t2 = select.OrderByRandom().Limit(10).ToList();
+        }
+
         [Fact]
         public void Skip_Offset()
         {
@@ -758,12 +867,15 @@ namespace FreeSql.Tests.Oracle
             var subquery = select.ToSql(a => new
             {
                 all = a,
-                count = select.Sum(b => b.Id)
+                count = (long)select.As("b").Sum(b => b.Id)
             });
+            Assert.Equal(@"SELECT a.""ID"" as1, a.""CLICKS"" as2, a.""TYPEGUID"" as3, a.""TITLE"" as4, a.""CREATETIME"" as5, (SELECT sum(b.""ID"") 
+    FROM ""TB_TOPIC22"" b) as6 
+FROM ""TB_TOPIC22"" a", subquery);
             var subqueryList = select.ToList(a => new
             {
                 all = a,
-                count = select.Sum(b => b.Id)
+                count = (long)select.As("b").Sum(b => b.Id)
             });
         }
         [Fact]
@@ -772,12 +884,15 @@ namespace FreeSql.Tests.Oracle
             var subquery = select.ToSql(a => new
             {
                 all = a,
-                count = select.Min(b => b.Id)
+                count = select.As("b").Min(b => b.Id)
             });
+            Assert.Equal(@"SELECT a.""ID"" as1, a.""CLICKS"" as2, a.""TYPEGUID"" as3, a.""TITLE"" as4, a.""CREATETIME"" as5, (SELECT min(b.""ID"") 
+    FROM ""TB_TOPIC22"" b) as6 
+FROM ""TB_TOPIC22"" a", subquery);
             var subqueryList = select.ToList(a => new
             {
                 all = a,
-                count = select.Min(b => b.Id)
+                count = select.As("b").Min(b => b.Id)
             });
         }
         [Fact]
@@ -786,12 +901,15 @@ namespace FreeSql.Tests.Oracle
             var subquery = select.ToSql(a => new
             {
                 all = a,
-                count = select.Max(b => b.Id)
+                count = select.As("b").Max(b => b.Id)
             });
+            Assert.Equal(@"SELECT a.""ID"" as1, a.""CLICKS"" as2, a.""TYPEGUID"" as3, a.""TITLE"" as4, a.""CREATETIME"" as5, (SELECT max(b.""ID"") 
+    FROM ""TB_TOPIC22"" b) as6 
+FROM ""TB_TOPIC22"" a", subquery);
             var subqueryList = select.ToList(a => new
             {
                 all = a,
-                count = select.Max(b => b.Id)
+                count = select.As("b").Max(b => b.Id)
             });
         }
         [Fact]
@@ -800,13 +918,26 @@ namespace FreeSql.Tests.Oracle
             var subquery = select.ToSql(a => new
             {
                 all = a,
-                count = select.Avg(b => b.Id)
+                count = select.As("b").Avg(b => b.Id)
             });
-            var subqueryList = select.ToList(a => new
+            Assert.Equal(@"SELECT a.""ID"" as1, a.""CLICKS"" as2, a.""TYPEGUID"" as3, a.""TITLE"" as4, a.""CREATETIME"" as5, (SELECT avg(b.""ID"") 
+    FROM ""TB_TOPIC22"" b) as6 
+FROM ""TB_TOPIC22"" a", subquery);
+            var subqueryList = select.Limit(10).ToList(a => new
             {
                 all = a,
-                count = select.Avg(b => b.Id)
+                count = select.As("b").Limit(10).Avg(b => b.Id)
             });
+        }
+        [Fact]
+        public void WhereIn()
+        {
+            var subquery = select.Where(a => select.As("b").ToList(b => b.Title).Contains(a.Id.ToString())).ToSql();
+            Assert.Equal(@"SELECT a.""ID"", a.""CLICKS"", a.""TYPEGUID"", a.""TITLE"", a.""CREATETIME"" 
+FROM ""TB_TOPIC22"" a 
+WHERE (((to_char(a.""ID"")) in (SELECT b.""TITLE"" 
+    FROM ""TB_TOPIC22"" b)))", subquery);
+            var subqueryList = select.Where(a => select.As("b").ToList(b => b.Title).Contains(a.Id.ToString())).ToList();
         }
         [Fact]
         public void As()
@@ -821,65 +952,99 @@ namespace FreeSql.Tests.Oracle
 
             Func<Type, string, string> tableRule = (type, oldname) =>
             {
-                if (type == typeof(Topic)) return oldname + "AsTable1";
-                else if (type == typeof(TestTypeInfo)) return oldname + "AsTable2";
-                return oldname + "AsTable";
+                if (oldname.Length > 16) oldname = oldname.Remove(16);
+                if (type == typeof(Topic)) return oldname + "_T1";
+                else if (type == typeof(TestTypeInfo)) return oldname + "_T2";
+                return oldname + "_AT";
             };
 
             //����е�������a.Type��a.Type.Parent ���ǵ�������
             var query = select.LeftJoin(a => a.Type.Guid == a.TypeGuid).AsTable(tableRule);
             var sql = query.ToSql().Replace("\r\n", "");
-            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", a__Type.\"GUID\", a__Type.\"PARENTID\", a__Type.\"NAME\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22AsTable1\" a LEFT JOIN \"TESTTYPEINFOAsTable2\" a__Type ON a__Type.\"GUID\" = a.\"TYPEGUID\"", sql);
+            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", a__Type.\"GUID\", a__Type.\"PARENTID\", a__Type.\"NAME\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22_T1\" a LEFT JOIN \"TESTTYPEINFO_T2\" a__Type ON a__Type.\"GUID\" = a.\"TYPEGUID\"", sql);
 
             query = select.LeftJoin(a => a.Type.Guid == a.TypeGuid && a.Type.Name == "xxx").AsTable(tableRule);
             sql = query.ToSql().Replace("\r\n", "");
-            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", a__Type.\"GUID\", a__Type.\"PARENTID\", a__Type.\"NAME\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22AsTable1\" a LEFT JOIN \"TESTTYPEINFOAsTable2\" a__Type ON a__Type.\"GUID\" = a.\"TYPEGUID\" AND a__Type.\"NAME\" = 'xxx'", sql);
+            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", a__Type.\"GUID\", a__Type.\"PARENTID\", a__Type.\"NAME\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22_T1\" a LEFT JOIN \"TESTTYPEINFO_T2\" a__Type ON a__Type.\"GUID\" = a.\"TYPEGUID\" AND a__Type.\"NAME\" = 'xxx'", sql);
 
             query = select.LeftJoin(a => a.Type.Guid == a.TypeGuid && a.Type.Name == "xxx").Where(a => a.Type.Parent.Id == 10).AsTable(tableRule);
             sql = query.ToSql().Replace("\r\n", "");
-            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", a__Type.\"GUID\", a__Type.\"PARENTID\", a__Type.\"NAME\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22AsTable1\" a LEFT JOIN \"TESTTYPEINFOAsTable2\" a__Type ON a__Type.\"GUID\" = a.\"TYPEGUID\" AND a__Type.\"NAME\" = 'xxx' LEFT JOIN \"TESTTYPEPARENTINFOAsTable\" a__Type__Parent ON a__Type__Parent.\"ID\" = a__Type.\"PARENTID\" WHERE (a__Type__Parent.\"ID\" = 10)", sql);
+            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", a__Type.\"GUID\", a__Type.\"PARENTID\", a__Type.\"NAME\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22_T1\" a LEFT JOIN \"TESTTYPEINFO_T2\" a__Type ON a__Type.\"GUID\" = a.\"TYPEGUID\" AND a__Type.\"NAME\" = 'xxx' LEFT JOIN \"TESTTYPEPARENTIN_AT\" a__Type__Parent ON a__Type__Parent.\"ID\" = a__Type.\"PARENTID\" WHERE (a__Type__Parent.\"ID\" = 10)", sql);
 
             //���û�е�������
             query = select.LeftJoin<TestTypeInfo>((a, b) => b.Guid == a.TypeGuid).AsTable(tableRule);
             sql = query.ToSql().Replace("\r\n", "");
-            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", b.\"GUID\", b.\"PARENTID\", b.\"NAME\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22AsTable1\" a LEFT JOIN \"TESTTYPEINFOAsTable2\" b ON b.\"GUID\" = a.\"TYPEGUID\"", sql);
+            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", b.\"GUID\", b.\"PARENTID\", b.\"NAME\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22_T1\" a LEFT JOIN \"TESTTYPEINFO_T2\" b ON b.\"GUID\" = a.\"TYPEGUID\"", sql);
 
             query = select.LeftJoin<TestTypeInfo>((a, b) => b.Guid == a.TypeGuid && b.Name == "xxx").AsTable(tableRule);
             sql = query.ToSql().Replace("\r\n", "");
-            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", b.\"GUID\", b.\"PARENTID\", b.\"NAME\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22AsTable1\" a LEFT JOIN \"TESTTYPEINFOAsTable2\" b ON b.\"GUID\" = a.\"TYPEGUID\" AND b.\"NAME\" = 'xxx'", sql);
+            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", b.\"GUID\", b.\"PARENTID\", b.\"NAME\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22_T1\" a LEFT JOIN \"TESTTYPEINFO_T2\" b ON b.\"GUID\" = a.\"TYPEGUID\" AND b.\"NAME\" = 'xxx'", sql);
 
             query = select.LeftJoin<TestTypeInfo>((a, a__Type) => a__Type.Guid == a.TypeGuid && a__Type.Name == "xxx").Where(a => a.Type.Parent.Id == 10).AsTable(tableRule);
             sql = query.ToSql().Replace("\r\n", "");
-            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", a__Type.\"GUID\", a__Type.\"PARENTID\", a__Type.\"NAME\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22AsTable1\" a LEFT JOIN \"TESTTYPEINFOAsTable2\" a__Type ON a__Type.\"GUID\" = a.\"TYPEGUID\" AND a__Type.\"NAME\" = 'xxx' LEFT JOIN \"TESTTYPEPARENTINFOAsTable\" a__Type__Parent ON a__Type__Parent.\"ID\" = a__Type.\"PARENTID\" WHERE (a__Type__Parent.\"ID\" = 10)", sql);
+            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", a__Type.\"GUID\", a__Type.\"PARENTID\", a__Type.\"NAME\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22_T1\" a LEFT JOIN \"TESTTYPEINFO_T2\" a__Type ON a__Type.\"GUID\" = a.\"TYPEGUID\" AND a__Type.\"NAME\" = 'xxx' LEFT JOIN \"TESTTYPEPARENTIN_AT\" a__Type__Parent ON a__Type__Parent.\"ID\" = a__Type.\"PARENTID\" WHERE (a__Type__Parent.\"ID\" = 10)", sql);
 
             //�������
             query = select
                 .LeftJoin(a => a.Type.Guid == a.TypeGuid)
                 .LeftJoin(a => a.Type.Parent.Id == a.Type.ParentId).AsTable(tableRule);
             sql = query.ToSql().Replace("\r\n", "");
-            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", a__Type.\"GUID\", a__Type.\"PARENTID\", a__Type.\"NAME\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22AsTable1\" a LEFT JOIN \"TESTTYPEINFOAsTable2\" a__Type ON a__Type.\"GUID\" = a.\"TYPEGUID\" LEFT JOIN \"TESTTYPEPARENTINFOAsTable\" a__Type__Parent ON a__Type__Parent.\"ID\" = a__Type.\"PARENTID\"", sql);
+            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", a__Type.\"GUID\", a__Type.\"PARENTID\", a__Type.\"NAME\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22_T1\" a LEFT JOIN \"TESTTYPEINFO_T2\" a__Type ON a__Type.\"GUID\" = a.\"TYPEGUID\" LEFT JOIN \"TESTTYPEPARENTIN_AT\" a__Type__Parent ON a__Type__Parent.\"ID\" = a__Type.\"PARENTID\"", sql);
 
             query = select
                 .LeftJoin<TestTypeInfo>((a, a__Type) => a__Type.Guid == a.TypeGuid)
                 .LeftJoin<TestTypeParentInfo>((a, c) => c.Id == a.Type.ParentId).AsTable(tableRule);
             sql = query.ToSql().Replace("\r\n", "");
-            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", a__Type.\"GUID\", a__Type.\"PARENTID\", a__Type.\"NAME\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22AsTable1\" a LEFT JOIN \"TESTTYPEINFOAsTable2\" a__Type ON a__Type.\"GUID\" = a.\"TYPEGUID\" LEFT JOIN \"TESTTYPEPARENTINFOAsTable\" c ON c.\"ID\" = a__Type.\"PARENTID\"", sql);
+            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", a__Type.\"GUID\", a__Type.\"PARENTID\", a__Type.\"NAME\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22_T1\" a LEFT JOIN \"TESTTYPEINFO_T2\" a__Type ON a__Type.\"GUID\" = a.\"TYPEGUID\" LEFT JOIN \"TESTTYPEPARENTIN_AT\" c ON c.\"ID\" = a__Type.\"PARENTID\"", sql);
 
             //���û�е�������b��c������ϵ
             var query2 = select.From<TestTypeInfo, TestTypeParentInfo>((s, b, c) => s
                  .LeftJoin(a => a.TypeGuid == b.Guid)
                  .LeftJoin(a => b.ParentId == c.Id)).AsTable(tableRule);
             sql = query2.ToSql().Replace("\r\n", "");
-            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", b.\"GUID\", b.\"PARENTID\", b.\"NAME\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22AsTable1\" a LEFT JOIN \"TESTTYPEINFOAsTable2\" b ON a.\"TYPEGUID\" = b.\"GUID\" LEFT JOIN \"TESTTYPEPARENTINFOAsTable\" c ON b.\"PARENTID\" = c.\"ID\"", sql);
+            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", b.\"GUID\", b.\"PARENTID\", b.\"NAME\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22_T1\" a LEFT JOIN \"TESTTYPEINFO_T2\" b ON a.\"TYPEGUID\" = b.\"GUID\" LEFT JOIN \"TESTTYPEPARENTIN_AT\" c ON b.\"PARENTID\" = c.\"ID\"", sql);
 
             //������϶����㲻��
             query = select.LeftJoin("\"TESTTYPEINFO\" b on b.\"GUID\" = a.\"TYPEGUID\"").AsTable(tableRule);
             sql = query.ToSql().Replace("\r\n", "");
-            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22AsTable1\" a LEFT JOIN \"TESTTYPEINFO\" b on b.\"GUID\" = a.\"TYPEGUID\"", sql);
+            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22_T1\" a LEFT JOIN \"TESTTYPEINFO\" b on b.\"GUID\" = a.\"TYPEGUID\"", sql);
 
             query = select.LeftJoin("\"TESTTYPEINFO\" b on b.\"GUID\" = a.\"TYPEGUID\" and b.\"NAME\" = :bname", new { bname = "xxx" }).AsTable(tableRule);
             sql = query.ToSql().Replace("\r\n", "");
-            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22AsTable1\" a LEFT JOIN \"TESTTYPEINFO\" b on b.\"GUID\" = a.\"TYPEGUID\" and b.\"NAME\" = :bname", sql);
+            Assert.Equal("SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22_T1\" a LEFT JOIN \"TESTTYPEINFO\" b on b.\"GUID\" = a.\"TYPEGUID\" and b.\"NAME\" = :bname", sql);
+
+            query = select.AsTable((_, old) => old).AsTable((_, old) => old);
+            sql = query.ToSql().Replace("\r\n", "");
+            Assert.Equal("SELECT  * from (SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22\" a) ftb UNION ALL SELECT  * from (SELECT a.\"ID\", a.\"CLICKS\", a.\"TYPEGUID\", a.\"TITLE\", a.\"CREATETIME\" FROM \"TB_TOPIC22\" a) ftb", sql);
+            query.ToList();
+
+            query = select.AsTable((_, old) => old).AsTable((_, old) => old);
+            sql = query.ToSql("count(1) as1").Replace("\r\n", "");
+            Assert.Equal("SELECT  * from (SELECT count(1) as1 FROM \"TB_TOPIC22\" a) ftb UNION ALL SELECT  * from (SELECT count(1) as1 FROM \"TB_TOPIC22\" a) ftb", sql);
+            query.Count();
+
+            select.AsTable((_, old) => old).AsTable((_, old) => old).Max(a => a.Id);
+            select.AsTable((_, old) => old).AsTable((_, old) => old).Min(a => a.Id);
+            select.AsTable((_, old) => old).AsTable((_, old) => old).Sum(a => a.Id);
+            //select.AsTable((_, old) => old).AsTable((_, old) => old).Avg(a => a.Id);
+
+            var sqlsss = select
+                .AsTable((type, old) => type == typeof(Topic) ? $"{old}_1" : null)
+                .AsTable((type, old) => type == typeof(Topic) ? $"{old}_2" : null)
+                .ToSql(a => new
+                {
+                    a.Id,
+                    a.Clicks
+                }, FieldAliasOptions.AsProperty);
+
+            var slsld3 = select
+                .AsTable((type, old) => type == typeof(Topic) ? $"({sqlsss})" : null)
+                .Page(1, 20)
+                .ToList(a => new
+                {
+                    a.Id,
+                    a.Clicks
+                });
         }
 
         public class TiOtmModel1
@@ -974,6 +1139,40 @@ namespace FreeSql.Tests.Oracle
                     then => then.IncludeMany(m3 => m3.childs2.Take(2).Where(m4 => m4.model3333Id333 == m3.id)))
                 .Where(a => a.id <= model1.id)
                 .ToList();
+
+            //---- Select ----
+
+            var at0 = g.oracle.Select<TiOtmModel2>()
+                .IncludeMany(a => a.childs.Where(m3 => m3.model2111Idaaa == a.model2id).Select(m3 => new TiOtmModel3 { id = m3.id }))
+                .Where(a => a.model2id <= model1.id)
+                .ToList();
+
+            var at1 = g.oracle.Select<TiOtmModel1>()
+                .IncludeMany(a => a.model2.childs.Where(m3 => m3.model2111Idaaa == a.model2.model2id).Select(m3 => new TiOtmModel3 { id = m3.id }))
+                .Where(a => a.id <= model1.id)
+                .ToList();
+
+            var at2 = g.oracle.Select<TiOtmModel1>()
+                .IncludeMany(a => a.model2.childs.Where(m3 => m3.model2111Idaaa == a.model2.model2id).Select(m3 => new TiOtmModel3 { id = m3.id }),
+                    then => then.IncludeMany(m3 => m3.childs2.Where(m4 => m4.model3333Id333 == m3.id).Select(m4 => new TiOtmModel4 { id = m4.id })))
+                .Where(a => a.id <= model1.id)
+                .ToList();
+
+            var at00 = g.oracle.Select<TiOtmModel2>()
+                .IncludeMany(a => a.childs.Take(1).Where(m3 => m3.model2111Idaaa == a.model2id).Select(m3 => new TiOtmModel3 { id = m3.id }))
+                .Where(a => a.model2id <= model1.id)
+                .ToList();
+
+            var at11 = g.oracle.Select<TiOtmModel1>()
+                .IncludeMany(a => a.model2.childs.Take(1).Where(m3 => m3.model2111Idaaa == a.model2.model2id).Select(m3 => new TiOtmModel3 { id = m3.id }))
+                .Where(a => a.id <= model1.id)
+                .ToList();
+
+            var at22 = g.oracle.Select<TiOtmModel1>()
+                .IncludeMany(a => a.model2.childs.Take(1).Where(m3 => m3.model2111Idaaa == a.model2.model2id).Select(m3 => new TiOtmModel3 { id = m3.id }),
+                    then => then.IncludeMany(m3 => m3.childs2.Take(2).Where(m4 => m4.model3333Id333 == m3.id).Select(m4 => new TiOtmModel4 { id = m4.id })))
+                .Where(a => a.id <= model1.id)
+                .ToList();
         }
 
         public class TiOtmModel11
@@ -991,6 +1190,8 @@ namespace FreeSql.Tests.Oracle
             [Column(IsIdentity = true)]
             public int id { get; set; }
             public string m2setting { get; set; }
+            public string aaa { get; set; }
+            public string bbb { get; set; }
             public List<TiOtmModel33> childs { get; set; }
         }
         public class TiOtmModel33
@@ -1005,7 +1206,7 @@ namespace FreeSql.Tests.Oracle
         public void Include_OneToMany2()
         {
             string setting = "x";
-            var model2 = new TiOtmModel22 { m2setting = DateTime.Now.Second.ToString() };
+            var model2 = new TiOtmModel22 { m2setting = DateTime.Now.Second.ToString(), aaa = "aaa" + DateTime.Now.Second, bbb = "bbb" + DateTime.Now.Second };
             model2.id = (int)g.oracle.Insert(model2).ExecuteIdentity();
 
             var model3s = new[]
@@ -1028,6 +1229,20 @@ namespace FreeSql.Tests.Oracle
             var t11 = g.oracle.Select<TiOtmModel11>()
                 .LeftJoin(a => a.model2id == a.model2.id)
                 .IncludeMany(a => a.model2.childs.Take(1).Where(m3 => m3.model2Id == a.model2.id && m3.setting == a.m3setting))
+                .Where(a => a.id <= model1.id)
+                .ToList(true);
+
+            //---- Select ----
+
+            var at1 = g.oracle.Select<TiOtmModel11>()
+                .LeftJoin(a => a.model2id == a.model2.id)
+                .IncludeMany(a => a.model2.childs.Where(m3 => m3.model2Id == a.model2.id && m3.setting == a.m3setting).Select(m3 => new TiOtmModel33 { title = m3.title }))
+                .Where(a => a.id <= model1.id)
+                .ToList(true);
+
+            var at11 = g.oracle.Select<TiOtmModel11>()
+                .LeftJoin(a => a.model2id == a.model2.id)
+                .IncludeMany(a => a.model2.childs.Take(1).Where(m3 => m3.model2Id == a.model2.id && m3.setting == a.m3setting).Select(m3 => new TiOtmModel33 { title = m3.title }))
                 .Where(a => a.id <= model1.id)
                 .ToList(true);
         }
@@ -1125,6 +1340,59 @@ namespace FreeSql.Tests.Oracle
                     then => then.Include(a => a.Parent).IncludeMany(a => a.Songs.Take(1)).IncludeMany(a => a.Tags.Take(1)))
                 .Include(a => a.Parent)
                 .IncludeMany(a => a.Songs.Take(1))
+                .Where(a => a.Id == tag1.Id || a.Id == tag2.Id)
+                .ToList();
+
+            // --- Select ---
+
+            var atags0 = g.oracle.Select<Tag>()
+                .Include(a => a.Parent)
+                .Where(a => a.Id == tag1.Id || a.Id == tag2.Id)
+                .ToList();
+
+            var atags1 = g.oracle.Select<Tag>()
+                .IncludeMany(a => a.Tags.Select(b => new Tag { Id = b.Id, Name = b.Name }))
+                .Include(a => a.Parent)
+                .IncludeMany(a => a.Songs.Select(b => new Song { Id = b.Id, Title = b.Title }))
+                .Where(a => a.Id == tag1.Id || a.Id == tag2.Id)
+                .ToList();
+
+            var atags2 = g.oracle.Select<Tag>()
+                .IncludeMany(a => a.Tags.Select(b => new Tag { Id = b.Id, Name = b.Name }),
+                    then => then.Include(a => a.Parent).IncludeMany(a => a.Songs))
+                .Include(a => a.Parent)
+                .IncludeMany(a => a.Songs.Select(b => new Song { Id = b.Id, Title = b.Title }))
+                .Where(a => a.Id == tag1.Id || a.Id == tag2.Id)
+                .ToList();
+
+            var atags3 = g.oracle.Select<Tag>()
+                .IncludeMany(a => a.Tags.Select(b => new Tag { Id = b.Id, Name = b.Name }),
+                    then => then.Include(a => a.Parent).IncludeMany(a => a.Songs.Select(b => new Song { Id = b.Id, Title = b.Title })).IncludeMany(a => a.Tags.Select(b => new Tag { Id = b.Id, Name = b.Name })))
+                .Include(a => a.Parent)
+                .IncludeMany(a => a.Songs.Select(b => new Song { Id = b.Id, Title = b.Title }))
+                .Where(a => a.Id == tag1.Id || a.Id == tag2.Id)
+                .ToList();
+
+            var atags11 = g.oracle.Select<Tag>()
+                .IncludeMany(a => a.Tags.Take(1).Select(b => new Tag { Id = b.Id, Name = b.Name }))
+                .Include(a => a.Parent)
+                .IncludeMany(a => a.Songs.Take(1).Select(b => new Song { Id = b.Id, Title = b.Title }))
+                .Where(a => a.Id == tag1.Id || a.Id == tag2.Id)
+                .ToList();
+
+            var atags22 = g.oracle.Select<Tag>()
+                .IncludeMany(a => a.Tags.Take(1).Select(b => new Tag { Id = b.Id, Name = b.Name }),
+                    then => then.Include(a => a.Parent).IncludeMany(a => a.Songs.Take(1).Select(b => new Song { Id = b.Id, Title = b.Title })))
+                .Include(a => a.Parent)
+                .IncludeMany(a => a.Songs.Take(1).Select(b => new Song { Id = b.Id, Title = b.Title }))
+                .Where(a => a.Id == tag1.Id || a.Id == tag2.Id)
+                .ToList();
+
+            var atags33 = g.oracle.Select<Tag>()
+                .IncludeMany(a => a.Tags.Take(1).Select(b => new Tag { Id = b.Id, Name = b.Name }),
+                    then => then.Include(a => a.Parent).IncludeMany(a => a.Songs.Take(1).Select(b => new Song { Id = b.Id, Title = b.Title })).IncludeMany(a => a.Tags.Take(1).Select(b => new Tag { Id = b.Id, Name = b.Name })))
+                .Include(a => a.Parent)
+                .IncludeMany(a => a.Songs.Take(1).Select(b => new Song { Id = b.Id, Title = b.Title }))
                 .Where(a => a.Id == tag1.Id || a.Id == tag2.Id)
                 .ToList();
         }
@@ -1231,6 +1499,364 @@ namespace FreeSql.Tests.Oracle
                 .IncludeMany(a => a.Tag.Songs.Take(1))
                 .Where(a => a.Tag.Id == tag1.Id || a.Tag.Id == tag2.Id)
                 .ToList(true);
+
+            // --- Select ---
+
+            new List<Song>(new[] { song1, song2, song3 }).IncludeMany(g.oracle, a => a.Tags.Select(b => new Tag { Id = b.Id, Name = b.Name }));
+
+            var asongs1 = g.oracle.Select<Song>()
+                .IncludeMany(a => a.Tags.Select(b => new Tag { Id = b.Id, Name = b.Name }))
+                .Where(a => a.Id == song1.Id || a.Id == song2.Id || a.Id == song3.Id)
+                .ToList();
+            Assert.Equal(3, songs1.Count);
+            Assert.Equal(2, songs1[0].Tags.Count);
+            Assert.Equal(1, songs1[1].Tags.Count);
+            Assert.Equal(3, songs1[2].Tags.Count);
+
+            var asongs2 = g.oracle.Select<Song>()
+                .IncludeMany(a => a.Tags.Select(b => new Tag { Id = b.Id, Name = b.Name }),
+                    then => then.IncludeMany(t => t.Songs.Select(b => new Song { Id = b.Id, Title = b.Title })))
+                .Where(a => a.Id == song1.Id || a.Id == song2.Id || a.Id == song3.Id)
+                .ToList();
+            Assert.Equal(3, songs2.Count);
+            Assert.Equal(2, songs2[0].Tags.Count);
+            Assert.Equal(1, songs2[1].Tags.Count);
+            Assert.Equal(3, songs2[2].Tags.Count);
+
+            var atags3 = g.oracle.Select<Song_tag>()
+                .Include(a => a.Tag.Parent)
+                .IncludeMany(a => a.Tag.Songs.Select(b => new Song { Id = b.Id, Title = b.Title }))
+                .Where(a => a.Tag.Id == tag1.Id || a.Tag.Id == tag2.Id)
+                .ToList(true);
+
+
+            var asongs11 = g.oracle.Select<Song>()
+                .IncludeMany(a => a.Tags.Take(1).Select(b => new Tag { Id = b.Id, Name = b.Name }))
+                .Where(a => a.Id == song1.Id || a.Id == song2.Id || a.Id == song3.Id)
+                .ToList();
+            Assert.Equal(3, songs11.Count);
+            Assert.Equal(1, songs11[0].Tags.Count);
+            Assert.Equal(1, songs11[1].Tags.Count);
+            Assert.Equal(1, songs11[2].Tags.Count);
+
+            var asongs22 = g.oracle.Select<Song>()
+                .IncludeMany(a => a.Tags.Take(1).Select(b => new Tag { Id = b.Id, Name = b.Name }),
+                    then => then.IncludeMany(t => t.Songs.Take(1).Select(b => new Song { Id = b.Id, Title = b.Title })))
+                .Where(a => a.Id == song1.Id || a.Id == song2.Id || a.Id == song3.Id)
+                .ToList();
+            Assert.Equal(3, songs22.Count);
+            Assert.Equal(1, songs22[0].Tags.Count);
+            Assert.Equal(1, songs22[1].Tags.Count);
+            Assert.Equal(1, songs22[2].Tags.Count);
+
+            var atags33 = g.oracle.Select<Song_tag>()
+                .Include(a => a.Tag.Parent)
+                .IncludeMany(a => a.Tag.Songs.Take(1).Select(b => new Song { Id = b.Id, Title = b.Title }))
+                .Where(a => a.Tag.Id == tag1.Id || a.Tag.Id == tag2.Id)
+                .ToList(true);
+        }
+
+        public class ToDel1Pk
+        {
+            [Column(IsIdentity = true)]
+            public int id { get; set; }
+            public string name { get; set; }
+        }
+        public class ToDel2Pk
+        {
+            [Column(IsPrimary = true)]
+            public Guid pk1 { get; set; }
+            [Column(IsPrimary = true)]
+            public string pk2 { get; set; }
+            public string name { get; set; }
+        }
+        public class ToDel3Pk
+        {
+            [Column(IsPrimary = true)]
+            public Guid pk1 { get; set; }
+            [Column(IsPrimary = true)]
+            public int pk2 { get; set; }
+            [Column(IsPrimary = true)]
+            public string pk3 { get; set; }
+            public string name { get; set; }
+        }
+        [Fact]
+        public void ToDelete()
+        {
+            g.oracle.Select<ToDel1Pk>().ToDelete().ExecuteAffrows();
+            Assert.Equal(0, g.oracle.Select<ToDel1Pk>().Count());
+            g.oracle.Insert(new[] {
+                new ToDel1Pk{ name = "name1"},
+                new ToDel1Pk{ name = "name2"},
+                new ToDel1Pk{ name = "nick1"},
+                new ToDel1Pk{ name = "nick2"},
+                new ToDel1Pk{ name = "nick3"}
+            }).ExecuteAffrows();
+            Assert.Equal(2, g.oracle.Select<ToDel1Pk>().Where(a => a.name.StartsWith("name")).ToDelete().ExecuteAffrows());
+            Assert.Equal(3, g.oracle.Select<ToDel1Pk>().Count());
+            Assert.Equal(3, g.oracle.Select<ToDel1Pk>().Where(a => a.name.StartsWith("nick")).Count());
+
+            g.oracle.Select<ToDel2Pk>().ToDelete().ExecuteAffrows();
+            Assert.Equal(0, g.oracle.Select<ToDel2Pk>().Count());
+            g.oracle.Insert(new[] {
+                new ToDel2Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = "pk2", name = "name1"},
+                new ToDel2Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = "pk2", name = "name2"},
+                new ToDel2Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = "pk2", name = "nick1"},
+                new ToDel2Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = "pk2", name = "nick2"},
+                new ToDel2Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = "pk2", name = "nick3"}
+            }).ExecuteAffrows();
+            Assert.Equal(2, g.oracle.Select<ToDel2Pk>().Where(a => a.name.StartsWith("name")).ToDelete().ExecuteAffrows());
+            Assert.Equal(3, g.oracle.Select<ToDel2Pk>().Count());
+            Assert.Equal(3, g.oracle.Select<ToDel2Pk>().Where(a => a.name.StartsWith("nick")).Count());
+
+            g.oracle.Select<ToDel3Pk>().ToDelete().ExecuteAffrows();
+            Assert.Equal(0, g.oracle.Select<ToDel3Pk>().Count());
+            g.oracle.Insert(new[] {
+                new ToDel3Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = 1, pk3 = "pk3", name = "name1"},
+                new ToDel3Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = 1, pk3 = "pk3", name = "name2"},
+                new ToDel3Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = 1, pk3 = "pk3", name = "nick1"},
+                new ToDel3Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = 1, pk3 = "pk3", name = "nick2"},
+                new ToDel3Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = 1, pk3 = "pk3", name = "nick3"}
+            }).ExecuteAffrows();
+            Assert.Equal(2, g.oracle.Select<ToDel3Pk>().Where(a => a.name.StartsWith("name")).ToDelete().ExecuteAffrows());
+            Assert.Equal(3, g.oracle.Select<ToDel3Pk>().Count());
+            Assert.Equal(3, g.oracle.Select<ToDel3Pk>().Where(a => a.name.StartsWith("nick")).Count());
+        }
+
+        public class ToUpd1Pk
+        {
+            [Column(IsIdentity = true)]
+            public int id { get; set; }
+            public string name { get; set; }
+        }
+        public class ToUpd2Pk
+        {
+            [Column(IsPrimary = true)]
+            public Guid pk1 { get; set; }
+            [Column(IsPrimary = true)]
+            public string pk2 { get; set; }
+            public string name { get; set; }
+        }
+        public class ToUpd3Pk
+        {
+            [Column(IsPrimary = true)]
+            public Guid pk1 { get; set; }
+            [Column(IsPrimary = true)]
+            public int pk2 { get; set; }
+            [Column(IsPrimary = true)]
+            public string pk3 { get; set; }
+            public string name { get; set; }
+        }
+        [Fact]
+        public void ToUpdate()
+        {
+            g.oracle.Select<ToUpd1Pk>().ToDelete().ExecuteAffrows();
+            Assert.Equal(0, g.oracle.Select<ToUpd1Pk>().Count());
+            g.oracle.Insert(new[] {
+                new ToUpd1Pk{ name = "name1"},
+                new ToUpd1Pk{ name = "name2"},
+                new ToUpd1Pk{ name = "nick1"},
+                new ToUpd1Pk{ name = "nick2"},
+                new ToUpd1Pk{ name = "nick3"}
+            }).ExecuteAffrows();
+            Assert.Equal(2, g.oracle.Select<ToUpd1Pk>().Where(a => a.name.StartsWith("name")).ToUpdate().Set(a => a.name, "nick?").ExecuteAffrows());
+            Assert.Equal(5, g.oracle.Select<ToUpd1Pk>().Count());
+            Assert.Equal(5, g.oracle.Select<ToUpd1Pk>().Where(a => a.name.StartsWith("nick")).Count());
+
+            g.oracle.Select<ToUpd2Pk>().ToDelete().ExecuteAffrows();
+            Assert.Equal(0, g.oracle.Select<ToUpd2Pk>().Count());
+            g.oracle.Insert(new[] {
+                new ToUpd2Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = "pk2", name = "name1"},
+                new ToUpd2Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = "pk2", name = "name2"},
+                new ToUpd2Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = "pk2", name = "nick1"},
+                new ToUpd2Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = "pk2", name = "nick2"},
+                new ToUpd2Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = "pk2", name = "nick3"}
+            }).ExecuteAffrows();
+            Assert.Equal(2, g.oracle.Select<ToUpd2Pk>().Where(a => a.name.StartsWith("name")).ToUpdate().Set(a => a.name, "nick?").ExecuteAffrows());
+            Assert.Equal(5, g.oracle.Select<ToUpd2Pk>().Count());
+            Assert.Equal(5, g.oracle.Select<ToUpd2Pk>().Where(a => a.name.StartsWith("nick")).Count());
+
+            g.oracle.Select<ToUpd3Pk>().ToDelete().ExecuteAffrows();
+            Assert.Equal(0, g.oracle.Select<ToUpd3Pk>().Count());
+            g.oracle.Insert(new[] {
+                new ToUpd3Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = 1, pk3 = "pk3", name = "name1"},
+                new ToUpd3Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = 1, pk3 = "pk3", name = "name2"},
+                new ToUpd3Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = 1, pk3 = "pk3", name = "nick1"},
+                new ToUpd3Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = 1, pk3 = "pk3", name = "nick2"},
+                new ToUpd3Pk{ pk1 = FreeUtil.NewMongodbId(), pk2 = 1, pk3 = "pk3", name = "nick3"}
+            }).ExecuteAffrows();
+            Assert.Equal(2, g.oracle.Select<ToUpd3Pk>().Where(a => a.name.StartsWith("name")).ToUpdate().Set(a => a.name, "nick?").ExecuteAffrows());
+            Assert.Equal(5, g.oracle.Select<ToUpd3Pk>().Count());
+            Assert.Equal(5, g.oracle.Select<ToUpd3Pk>().Where(a => a.name.StartsWith("nick")).Count());
+        }
+
+        [Fact]
+        public void ForUpdate()
+        {
+            var orm = g.oracle;
+
+            Assert.Equal("安全起见，请务必在事务开启之后，再使用 ForUpdate",
+                Assert.Throws<Exception>(() => orm.Select<ToUpd1Pk>().ForUpdate().Limit(1).ToList())?.Message);
+
+            orm.Transaction(() =>
+            {
+                var sql = orm.Select<ToUpd1Pk>().ForUpdate().Limit(1).ToSql().Replace("\r\n", "");
+                Assert.Equal("SELECT a.\"ID\", a.\"NAME\" FROM \"TOUPD1PK\" a WHERE ROWNUM < 2 for update", sql);
+                orm.Select<ToUpd1Pk>().ForUpdate().Limit(1).ToList();
+
+                sql = orm.Select<ToUpd1Pk>().ForUpdate(true).Limit(1).ToSql().Replace("\r\n", "");
+                Assert.Equal("SELECT a.\"ID\", a.\"NAME\" FROM \"TOUPD1PK\" a WHERE ROWNUM < 2 for update nowait", sql);
+                orm.Select<ToUpd1Pk>().ForUpdate(true).Limit(1).ToList();
+            });
+        }
+
+        [Fact]
+        public void ToTreeList()
+        {
+            var fsql = g.oracle;
+            fsql.Delete<BaseDistrict>().Where("1=1").ExecuteAffrows();
+            var repo = fsql.GetRepository<VM_District_Child>();
+            repo.DbContextOptions.EnableAddOrUpdateNavigateList = true;
+            repo.DbContextOptions.NoneParameter = true;
+            repo.Insert(new VM_District_Child
+            {
+                Code = "100000",
+                Name = "中国",
+                Childs = new List<VM_District_Child>(new[] {
+                    new VM_District_Child
+                    {
+                        Code = "110000",
+                        Name = "北京",
+                        Childs = new List<VM_District_Child>(new[] {
+                            new VM_District_Child{ Code="110100", Name = "北京市" },
+                            new VM_District_Child{ Code="110101", Name = "东城区" },
+                        })
+                    }
+                })
+            });
+
+            var t1 = fsql.Select<VM_District_Parent>()
+                .InnerJoin(a => a.ParentCode == a.Parent.Code)
+                .Where(a => a.Code == "110101")
+                .ToList(true);
+            Assert.Single(t1);
+            Assert.Equal("110101", t1[0].Code);
+            Assert.NotNull(t1[0].Parent);
+            Assert.Equal("110000", t1[0].Parent.Code);
+
+            var t2 = fsql.Select<VM_District_Parent>()
+                .InnerJoin(a => a.ParentCode == a.Parent.Code)
+                .InnerJoin(a => a.Parent.ParentCode == a.Parent.Parent.Code)
+                .Where(a => a.Code == "110101")
+                .ToList(true);
+            Assert.Single(t2);
+            Assert.Equal("110101", t2[0].Code);
+            Assert.NotNull(t2[0].Parent);
+            Assert.Equal("110000", t2[0].Parent.Code);
+            Assert.NotNull(t2[0].Parent.Parent);
+            Assert.Equal("100000", t2[0].Parent.Parent.Code);
+
+            var t3 = fsql.Select<VM_District_Child>().ToTreeList();
+            Assert.Single(t3);
+            Assert.Equal("100000", t3[0].Code);
+            Assert.Single(t3[0].Childs);
+            Assert.Equal("110000", t3[0].Childs[0].Code);
+            Assert.Equal(2, t3[0].Childs[0].Childs.Count);
+            Assert.Equal("110100", t3[0].Childs[0].Childs[0].Code);
+            Assert.Equal("110101", t3[0].Childs[0].Childs[1].Code);
+
+            t3 = fsql.Select<VM_District_Child>().Where(a => a.Name == "中国").AsTreeCte().OrderBy(a => a.Code).ToTreeList();
+            Assert.Single(t3);
+            Assert.Equal("100000", t3[0].Code);
+            Assert.Single(t3[0].Childs);
+            Assert.Equal("110000", t3[0].Childs[0].Code);
+            Assert.Equal(2, t3[0].Childs[0].Childs.Count);
+            Assert.Equal("110100", t3[0].Childs[0].Childs[0].Code);
+            Assert.Equal("110101", t3[0].Childs[0].Childs[1].Code);
+
+            t3 = fsql.Select<VM_District_Child>().Where(a => a.Name == "中国").AsTreeCte().OrderBy(a => a.Code).ToList();
+            Assert.Equal(4, t3.Count);
+            Assert.Equal("100000", t3[0].Code);
+            Assert.Equal("110000", t3[1].Code);
+            Assert.Equal("110100", t3[2].Code);
+            Assert.Equal("110101", t3[3].Code);
+
+            t3 = fsql.Select<VM_District_Child>().Where(a => a.Name == "北京").AsTreeCte().OrderBy(a => a.Code).ToList();
+            Assert.Equal(3, t3.Count);
+            Assert.Equal("110000", t3[0].Code);
+            Assert.Equal("110100", t3[1].Code);
+            Assert.Equal("110101", t3[2].Code);
+
+            var t4 = fsql.Select<VM_District_Child>().Where(a => a.Name == "中国").AsTreeCte(a => a.Name).OrderBy(a => a.Code)
+                .ToList(a => new { item = a, level = Convert.ToInt32("a.cte_level"), path = "a.cte_path" });
+            Assert.Equal(4, t4.Count);
+            Assert.Equal("100000", t4[0].item.Code);
+            Assert.Equal("110000", t4[1].item.Code);
+            Assert.Equal("110100", t4[2].item.Code);
+            Assert.Equal("110101", t4[3].item.Code);
+            Assert.Equal("中国", t4[0].path);
+            Assert.Equal("中国 -> 北京", t4[1].path);
+            Assert.Equal("中国 -> 北京 -> 北京市", t4[2].path);
+            Assert.Equal("中国 -> 北京 -> 东城区", t4[3].path);
+
+            t4 = fsql.Select<VM_District_Child>().Where(a => a.Name == "中国").AsTreeCte(a => a.Name + "[" + a.Code + "]").OrderBy(a => a.Code)
+                .ToList(a => new { item = a, level = Convert.ToInt32("a.cte_level"), path = "a.cte_path" });
+            Assert.Equal(4, t4.Count);
+            Assert.Equal("100000", t4[0].item.Code);
+            Assert.Equal("110000", t4[1].item.Code);
+            Assert.Equal("110100", t4[2].item.Code);
+            Assert.Equal("110101", t4[3].item.Code);
+            Assert.Equal("中国[100000]", t4[0].path);
+            Assert.Equal("中国[100000] -> 北京[110000]", t4[1].path);
+            Assert.Equal("中国[100000] -> 北京[110000] -> 北京市[110100]", t4[2].path);
+            Assert.Equal("中国[100000] -> 北京[110000] -> 东城区[110101]", t4[3].path);
+
+            var select = fsql.Select<VM_District_Child>()
+                .Where(a => a.Name == "中国")
+                .AsTreeCte()
+                //.OrderBy("a.cte_level desc") //递归层级
+                ;
+            // var list = select.ToList(); //自己调试看查到的数据
+            select.ToUpdate().Set(a => a.testint, 855).ExecuteAffrows();
+            Assert.Equal(855, fsql.Select<VM_District_Child>()
+                .Where(a => a.Name == "中国")
+                .AsTreeCte().Distinct().First(a => a.testint));
+
+            Assert.Equal(4, select.ToDelete().ExecuteAffrows());
+            Assert.False(fsql.Select<VM_District_Child>()
+                .Where(a => a.Name == "中国")
+                .AsTreeCte().Any());
+        }
+
+        [Table(Name = "D_District")]
+        public class BaseDistrict
+        {
+            [Column(IsPrimary = true, StringLength = 6)]
+            public string Code { get; set; }
+
+            [Column(StringLength = 20, IsNullable = false)]
+            public string Name { get; set; }
+
+            [Column(StringLength = 6)]
+            public virtual string ParentCode { get; set; }
+
+            public int testint { get; set; }
+        }
+        [Table(Name = "D_District", DisableSyncStructure = true)]
+        public class VM_District_Child : BaseDistrict
+        {
+            public override string ParentCode { get => base.ParentCode; set => base.ParentCode = value; }
+
+            [Navigate(nameof(ParentCode))]
+            public List<VM_District_Child> Childs { get; set; }
+        }
+        [Table(Name = "D_District", DisableSyncStructure = true)]
+        public class VM_District_Parent : BaseDistrict
+        {
+            public override string ParentCode { get => base.ParentCode; set => base.ParentCode = value; }
+
+            [Navigate(nameof(ParentCode))]
+            public VM_District_Parent Parent { get; set; }
         }
     }
 }

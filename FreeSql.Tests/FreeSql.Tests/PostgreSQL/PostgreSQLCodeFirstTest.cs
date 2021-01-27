@@ -7,6 +7,7 @@ using NpgsqlTypes;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
@@ -17,6 +18,123 @@ namespace FreeSql.Tests.PostgreSQL
 {
     public class PostgreSQLCodeFirstTest
     {
+        [Fact]
+        public void InsertUpdateParameter()
+        {
+            var fsql = g.pgsql;
+            fsql.CodeFirst.SyncStructure<ts_iupstr_bak>();
+            var item = new ts_iupstr { id = Guid.NewGuid(), title = string.Join(",", Enumerable.Range(0, 2000).Select(a => "我是中国人")) };
+            Assert.Equal(1, fsql.Insert(item).ExecuteAffrows());
+            var find = fsql.Select<ts_iupstr>().Where(a => a.id == item.id).First();
+            Assert.NotNull(find);
+            Assert.Equal(find.id, item.id);
+            Assert.Equal(find.title, item.title);
+        }
+        [Table(Name = "ts_iupstr_bak", DisableSyncStructure = true)]
+        class ts_iupstr
+        {
+            public Guid id { get; set; }
+            public string title { get; set; }
+        }
+        class ts_iupstr_bak
+        {
+            public Guid id { get; set; }
+            [Column(StringLength = -1)]
+            public string title { get; set; }
+        }
+
+        [Fact]
+        public void DateTime_1()
+        {
+            var item1 = new TS_DATETIME01 { CreateTime = DateTime.Now };
+            Assert.Equal(1, g.pgsql.Insert(item1).ExecuteAffrows());
+
+            var item2 = g.pgsql.Select<TS_DATETIME01>().Where(a => a.Id == item1.Id).First();
+            Assert.NotNull(item2.CreateTime);
+            Assert.True(1 > Math.Abs(item2.CreateTime.Value.Subtract(item1.CreateTime.Value).TotalSeconds));
+
+            item1.CreateTime = DateTime.Now;
+            Assert.Equal(1, g.pgsql.Update<TS_DATETIME01>().SetSource(item1).ExecuteAffrows());
+            item2 = g.pgsql.Select<TS_DATETIME01>().Where(a => a.Id == item1.Id).First();
+            Assert.NotNull(item2.CreateTime);
+            Assert.True(1 > Math.Abs(item2.CreateTime.Value.Subtract(item1.CreateTime.Value).TotalSeconds));
+        }
+        class TS_DATETIME01
+        {
+            public Guid Id { get; set; }
+            [Column(DbType = "timestamp NULL")]
+            public DateTime? CreateTime { get; set; }
+        }
+        [Fact]
+        public void DateTime_2()
+        {
+            var item1 = new TS_DATETIME02 { CreateTime = DateTime.Now };
+            Assert.Equal(1, g.pgsql.Insert(item1).ExecuteAffrows());
+
+            var item2 = g.pgsql.Select<TS_DATETIME02>().Where(a => a.Id == item1.Id).First();
+            Assert.NotNull(item2.CreateTime);
+            Assert.True(1 > Math.Abs(item2.CreateTime.Value.Subtract(item1.CreateTime.Value).TotalSeconds));
+
+            item1.CreateTime = DateTime.Now;
+            Assert.Equal(1, g.pgsql.Update<TS_DATETIME02>().SetSource(item1).ExecuteAffrows());
+            item2 = g.pgsql.Select<TS_DATETIME02>().Where(a => a.Id == item1.Id).First();
+            Assert.NotNull(item2.CreateTime);
+            Assert.True(1 > Math.Abs(item2.CreateTime.Value.Subtract(item1.CreateTime.Value).TotalSeconds));
+        }
+        class TS_DATETIME02
+        {
+            public Guid Id { get; set; }
+            [Column(DbType = "timestamp NOT NULL")]
+            public DateTime? CreateTime { get; set; }
+        }
+
+        [Fact]
+        public void Blob()
+        {
+            var str1 = string.Join(",", Enumerable.Range(0, 10000).Select(a => "我是中国人"));
+            var data1 = Encoding.UTF8.GetBytes(str1);
+
+            var item1 = new TS_BLB01 { Data = data1 };
+            Assert.Equal(1, g.pgsql.Insert(item1).ExecuteAffrows());
+
+            var item2 = g.pgsql.Select<TS_BLB01>().Where(a => a.Id == item1.Id).First();
+            Assert.Equal(item1.Data.Length, item2.Data.Length);
+
+            var str2 = Encoding.UTF8.GetString(item2.Data);
+            Assert.Equal(str1, str2);
+
+            //NoneParameter
+            item1 = new TS_BLB01 { Data = data1 };
+            Assert.Equal(1, g.pgsql.Insert<TS_BLB01>().NoneParameter().AppendData(item1).ExecuteAffrows());
+
+            item2 = g.pgsql.Select<TS_BLB01>().Where(a => a.Id == item1.Id).First();
+            Assert.Equal(item1.Data.Length, item2.Data.Length);
+
+            str2 = Encoding.UTF8.GetString(item2.Data);
+            Assert.Equal(str1, str2);
+        }
+        class TS_BLB01
+        {
+            public Guid Id { get; set; }
+            [MaxLength(-1)]
+            public byte[] Data { get; set; }
+        }
+
+        [Fact]
+        public void StringLength()
+        {
+            var dll = g.pgsql.CodeFirst.GetComparisonDDLStatements<TS_SLTB>();
+            g.pgsql.CodeFirst.SyncStructure<TS_SLTB>();
+        }
+        class TS_SLTB
+        {
+            public Guid Id { get; set; }
+            [Column(StringLength = 50)]
+            public string Title { get; set; }
+
+            [Column(IsNullable = false, StringLength = 50)]
+            public string TitleSub { get; set; }
+        }
 
         [Fact]
         public void 中文表_字段()
@@ -35,6 +153,28 @@ namespace FreeSql.Tests.PostgreSQL
             Assert.NotNull(item2);
             Assert.Equal(item.编号, item2.编号);
             Assert.Equal(item.标题, item2.标题);
+
+            item.标题 = "测试标题更新";
+            Assert.Equal(1, g.pgsql.Update<测试中文表>().SetSource(item).ExecuteAffrows());
+            item2 = g.pgsql.Select<测试中文表>().Where(a => a.编号 == item.编号).First();
+            Assert.NotNull(item2);
+            Assert.Equal(item.编号, item2.编号);
+            Assert.Equal(item.标题, item2.标题);
+
+            item.标题 = "测试标题更新_repo";
+            var repo = g.pgsql.GetRepository<测试中文表>();
+            Assert.Equal(1, repo.Update(item));
+            item2 = g.pgsql.Select<测试中文表>().Where(a => a.编号 == item.编号).First();
+            Assert.NotNull(item2);
+            Assert.Equal(item.编号, item2.编号);
+            Assert.Equal(item.标题, item2.标题);
+
+            item.标题 = "测试标题更新_repo22";
+            Assert.Equal(1, repo.Update(item));
+            item2 = g.pgsql.Select<测试中文表>().Where(a => a.编号 == item.编号).First();
+            Assert.NotNull(item2);
+            Assert.Equal(item.编号, item2.编号);
+            Assert.Equal(item.标题, item2.标题);
         }
         class 测试中文表
         {
@@ -43,7 +183,11 @@ namespace FreeSql.Tests.PostgreSQL
 
             public string 标题 { get; set; }
 
+            [Column(ServerTime = DateTimeKind.Local, CanUpdate = false)]
             public DateTime 创建时间 { get; set; }
+
+            [Column(ServerTime = DateTimeKind.Local)]
+            public DateTime 更新时间 { get; set; }
         }
 
         [Fact]
@@ -51,19 +195,19 @@ namespace FreeSql.Tests.PostgreSQL
         {
             var sql = g.pgsql.CodeFirst.GetComparisonDDLStatements<AddUniquesInfo>();
             g.pgsql.CodeFirst.SyncStructure<AddUniquesInfo>();
+            g.pgsql.CodeFirst.SyncStructure(typeof(AddUniquesInfo), "AddUniquesInfo1");
         }
         [Table(Name = "AddUniquesInfo", OldName = "AddUniquesInfo2")]
+        [Index("{tablename}_uk_phone", "phone", true)]
+        [Index("{tablename}_uk_group_index", "group,index", true)]
+        [Index("{tablename}_uk_group_index22", "group, index22", false)]
         class AddUniquesInfo
         {
             public Guid id { get; set; }
-            [Column(Unique = "uk_phone")]
             public string phone { get; set; }
 
-            [Column(Unique = "uk_group_index, uk_group_index22")]
             public string group { get; set; }
-            [Column(Unique = "uk_group_index")]
             public int index { get; set; }
-            [Column(Unique = "uk_group_index22")]
             public string index22 { get; set; }
         }
 
@@ -71,8 +215,8 @@ namespace FreeSql.Tests.PostgreSQL
         public void AddField()
         {
             var sql = g.pgsql.CodeFirst.GetComparisonDDLStatements<TopicAddField>();
+            Assert.True(string.IsNullOrEmpty(sql)); //测试运行两次后
             g.pgsql.Select<TopicAddField>();
-
             var id = g.pgsql.Insert<TopicAddField>().AppendData(new TopicAddField { }).ExecuteIdentity();
         }
 
@@ -313,7 +457,8 @@ namespace FreeSql.Tests.PostgreSQL
                 testFieldShortArray = new short[] { 1, 2, 3, 4, 5 },
                 testFieldShortArrayNullable = new short?[] { 1, 2, 3, null, 4, 5 },
                 testFieldShortNullable = short.MinValue,
-                testFieldString = "我是中国人String",
+                testFieldString = "我是中国人string'\\?!@#$%^&*()_+{}}{~?><<>",
+                testFieldChar = 'X',
                 testFieldStringArray = new[] { "我是中国人String1", "我是中国人String2", null, "我是中国人String3" },
                 testFieldTimeSpan = TimeSpan.FromDays(1),
                 testFieldTimeSpanArray = new[] { TimeSpan.FromDays(1), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(60) },
@@ -338,10 +483,23 @@ namespace FreeSql.Tests.PostgreSQL
                 testFielLongArrayNullable = new long?[] { 500, 600, 700, null, 999, 1000 },
                 testFielLongNullable = long.MinValue
             };
+
+            var sqlPar = insert.AppendData(item2).ToSql();
+            var sqlText = insert.AppendData(item2).NoneParameter().ToSql();
+            var item3NP = insert.AppendData(item2).NoneParameter().ExecuteInserted();
+
             var item3 = insert.AppendData(item2).ExecuteInserted().First();
-            var newitem2 = select.Where(a => a.Id == item3.Id).ToOne();
+            var newitem2 = select.Where(a => a.Id == item3.Id && object.Equals(a.testFieldJToken["a"], "1")).ToOne();
+            Assert.Equal(item2.testFieldString, newitem2.testFieldString);
+            Assert.Equal(item2.testFieldChar, newitem2.testFieldChar);
+
+            item3 = insert.NoneParameter().AppendData(item2).ExecuteInserted().First();
+            newitem2 = select.Where(a => a.Id == item3.Id && object.Equals(a.testFieldJToken["a"], "1")).ToOne();
+            Assert.Equal(item2.testFieldString, newitem2.testFieldString);
+            Assert.Equal(item2.testFieldChar, newitem2.testFieldChar);
 
             var items = select.ToList();
+            var itemstb = select.ToDataTable();
         }
 
         [Table(Name = "tb_alltype")]
@@ -363,9 +521,13 @@ namespace FreeSql.Tests.PostgreSQL
             public float testFieldFloat { get; set; }
             public decimal testFieldDecimal { get; set; }
             public TimeSpan testFieldTimeSpan { get; set; }
+
+            [Column(ServerTime = DateTimeKind.Local)]
             public DateTime testFieldDateTime { get; set; }
+
             public byte[] testFieldBytes { get; set; }
             public string testFieldString { get; set; }
+            public char testFieldChar { get; set; }
             public Guid testFieldGuid { get; set; }
             public NpgsqlPoint testFieldNpgsqlPoint { get; set; }
             public NpgsqlLine testFieldNpgsqlLine { get; set; }
@@ -393,7 +555,10 @@ namespace FreeSql.Tests.PostgreSQL
             public float? testFieldFloatNullable { get; set; }
             public decimal? testFieldDecimalNullable { get; set; }
             public TimeSpan? testFieldTimeSpanNullable { get; set; }
+
+            [Column(ServerTime = DateTimeKind.Local)]
             public DateTime? testFieldDateTimeNullable { get; set; }
+
             public Guid? testFieldGuidNullable { get; set; }
             public NpgsqlPoint? testFieldNpgsqlPointNullable { get; set; }
             public NpgsqlLine? testFieldNpgsqlLineNullable { get; set; }

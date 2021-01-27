@@ -11,7 +11,7 @@ namespace FreeSql.Tests.DataContext.SqlServer
         public SqlServerFixture()
         {
             sqlServerLazy = new Lazy<IFreeSql>(() => new FreeSql.FreeSqlBuilder()
-             .UseConnectionString(FreeSql.DataType.SqlServer, "Data Source=.;Integrated Security=True;Initial Catalog=freesqlTest;Pooling=true;Max Pool Size=10")
+             .UseConnectionString(FreeSql.DataType.SqlServer, "Data Source=.;Integrated Security=True;Initial Catalog=freesqlTest;Pooling=true;Max Pool Size=2")
               //.UseConnectionString(FreeSql.DataType.SqlServer, "Data Source=(localdb)\\mssqllocaldb;Integrated Security=True;Initial Catalog=freesqlTest;Pooling=true;Max Pool Size=10")
               .UseAutoSyncStructure(true)
               .UseLazyLoading(true)
@@ -42,7 +42,7 @@ namespace FreeSql.Tests.DataContext.SqlServer
                 "TestTypeParentInfo23123", "xxdkdkdk1222", "xxx"};
             foreach (var tempTable in tempTables)
             {
-                DeleteTmpTable(dataTables, tempTable);
+                //DeleteTmpTable(dataTables, tempTable);
             }
         }
 

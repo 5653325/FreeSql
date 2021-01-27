@@ -1,11 +1,17 @@
 ﻿using FreeSql.DatabaseModel;
 using FreeSql.Internal;
-using MySql.Data.MySqlClient;
+using FreeSql.Internal.Model;
 using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
+#if MySqlConnector
+using MySqlConnector;
+#else
+using MySql.Data.MySqlClient;
+#endif
 
 namespace FreeSql.MySql
 {
@@ -78,53 +84,53 @@ namespace FreeSql.MySql
             }
         }
 
-        static readonly Dictionary<int, (string csConvert, string csParse, string csStringify, string csType, Type csTypeInfo, Type csNullableTypeInfo, string csTypeValue, string dataReaderMethod)> _dicDbToCs = new Dictionary<int, (string csConvert, string csParse, string csStringify, string csType, Type csTypeInfo, Type csNullableTypeInfo, string csTypeValue, string dataReaderMethod)>() {
-                { (int)MySqlDbType.Bit, ("(bool?)", "{0} == \"1\"", "{0} == true ? \"1\" : \"0\"", "bool?", typeof(bool), typeof(bool?), "{0}.Value", "GetBoolean") },
+        static readonly Dictionary<int, DbToCs> _dicDbToCs = new Dictionary<int, DbToCs>() {
+                { (int)MySqlDbType.Bit, new DbToCs("(bool?)", "{0} == \"1\"", "{0} == true ? \"1\" : \"0\"", "bool?", typeof(bool), typeof(bool?), "{0}.Value", "GetBoolean") },
 
-                { (int)MySqlDbType.Byte, ("(sbyte?)", "sbyte.Parse({0})", "{0}.ToString()", "sbyte?", typeof(sbyte), typeof(sbyte?), "{0}.Value", "GetByte") },
-                { (int)MySqlDbType.Int16, ("(short?)", "short.Parse({0})", "{0}.ToString()", "short?", typeof(short), typeof(short?), "{0}.Value", "GetInt16") },
-                { (int)MySqlDbType.Int24, ("(int?)", "int.Parse({0})", "{0}.ToString()", "int?", typeof(int), typeof(int?), "{0}.Value", "GetInt32") },
-                { (int)MySqlDbType.Int32, ("(int?)", "int.Parse({0})", "{0}.ToString()", "int?", typeof(int), typeof(int?), "{0}.Value", "GetInt32") },
-                { (int)MySqlDbType.Int64, ("(long?)", "long.Parse({0})", "{0}.ToString()", "long?", typeof(long), typeof(long?), "{0}.Value", "GetInt64") },
+                { (int)MySqlDbType.Byte, new DbToCs("(sbyte?)", "sbyte.Parse({0})", "{0}.ToString()", "sbyte?", typeof(sbyte), typeof(sbyte?), "{0}.Value", "GetByte") },
+                { (int)MySqlDbType.Int16, new DbToCs("(short?)", "short.Parse({0})", "{0}.ToString()", "short?", typeof(short), typeof(short?), "{0}.Value", "GetInt16") },
+                { (int)MySqlDbType.Int24, new DbToCs("(int?)", "int.Parse({0})", "{0}.ToString()", "int?", typeof(int), typeof(int?), "{0}.Value", "GetInt32") },
+                { (int)MySqlDbType.Int32, new DbToCs("(int?)", "int.Parse({0})", "{0}.ToString()", "int?", typeof(int), typeof(int?), "{0}.Value", "GetInt32") },
+                { (int)MySqlDbType.Int64, new DbToCs("(long?)", "long.Parse({0})", "{0}.ToString()", "long?", typeof(long), typeof(long?), "{0}.Value", "GetInt64") },
 
-                { (int)MySqlDbType.UByte, ("(byte?)", "byte.Parse({0})", "{0}.ToString()", "byte?", typeof(byte), typeof(byte?), "{0}.Value", "GetByte") },
-                { (int)MySqlDbType.UInt16, ("(ushort?)", "ushort.Parse({0})", "{0}.ToString()", "ushort?", typeof(ushort), typeof(ushort?), "{0}.Value", "GetInt16") },
-                { (int)MySqlDbType.UInt24, ("(uint?)", "uint.Parse({0})", "{0}.ToString()", "uint?", typeof(uint), typeof(uint?), "{0}.Value", "GetInt32") },
-                { (int)MySqlDbType.UInt32, ("(uint?)", "uint.Parse({0})", "{0}.ToString()", "uint?", typeof(uint), typeof(uint?), "{0}.Value", "GetInt32") },
-                { (int)MySqlDbType.UInt64, ("(ulong?)", "ulong.Parse({0})", "{0}.ToString()", "ulong?", typeof(ulong), typeof(ulong?), "{0}.Value", "GetInt64") },
+                { (int)MySqlDbType.UByte, new DbToCs("(byte?)", "byte.Parse({0})", "{0}.ToString()", "byte?", typeof(byte), typeof(byte?), "{0}.Value", "GetByte") },
+                { (int)MySqlDbType.UInt16, new DbToCs("(ushort?)", "ushort.Parse({0})", "{0}.ToString()", "ushort?", typeof(ushort), typeof(ushort?), "{0}.Value", "GetInt16") },
+                { (int)MySqlDbType.UInt24, new DbToCs("(uint?)", "uint.Parse({0})", "{0}.ToString()", "uint?", typeof(uint), typeof(uint?), "{0}.Value", "GetInt32") },
+                { (int)MySqlDbType.UInt32, new DbToCs("(uint?)", "uint.Parse({0})", "{0}.ToString()", "uint?", typeof(uint), typeof(uint?), "{0}.Value", "GetInt32") },
+                { (int)MySqlDbType.UInt64, new DbToCs("(ulong?)", "ulong.Parse({0})", "{0}.ToString()", "ulong?", typeof(ulong), typeof(ulong?), "{0}.Value", "GetInt64") },
 
-                { (int)MySqlDbType.Double, ("(double?)", "double.Parse({0})", "{0}.ToString()", "double?", typeof(double), typeof(double?), "{0}.Value", "GetDouble") },
-                { (int)MySqlDbType.Float, ("(float?)", "float.Parse({0})", "{0}.ToString()", "float?", typeof(float), typeof(float?), "{0}.Value", "GetFloat") },
-                { (int)MySqlDbType.Decimal, ("(decimal?)", "decimal.Parse({0})", "{0}.ToString()", "decimal?", typeof(decimal), typeof(decimal?), "{0}.Value", "GetDecimal") },
+                { (int)MySqlDbType.Double, new DbToCs("(double?)", "double.Parse({0})", "{0}.ToString()", "double?", typeof(double), typeof(double?), "{0}.Value", "GetDouble") },
+                { (int)MySqlDbType.Float, new DbToCs("(float?)", "float.Parse({0})", "{0}.ToString()", "float?", typeof(float), typeof(float?), "{0}.Value", "GetFloat") },
+                { (int)MySqlDbType.Decimal, new DbToCs("(decimal?)", "decimal.Parse({0})", "{0}.ToString()", "decimal?", typeof(decimal), typeof(decimal?), "{0}.Value", "GetDecimal") },
 
-                { (int)MySqlDbType.Year, ("(int?)", "int.Parse({0})", "{0}.ToString()", "int?", typeof(int), typeof(int?), "{0}.Value", "GetInt32") },
-                { (int)MySqlDbType.Time, ("(TimeSpan?)", "TimeSpan.Parse(double.Parse({0}))", "{0}.Ticks.ToString()", "TimeSpan?", typeof(TimeSpan), typeof(TimeSpan?), "{0}.Value", "GetValue") },
-                { (int)MySqlDbType.Date, ("(DateTime?)", "new DateTime(long.Parse({0}))", "{0}.Ticks.ToString()", "DateTime?", typeof(DateTime), typeof(DateTime?), "{0}.Value", "GetDateTime") },
-                { (int)MySqlDbType.Timestamp, ("(DateTime?)", "new DateTime(long.Parse({0}))", "{0}.Ticks.ToString()", "DateTime?", typeof(DateTime), typeof(DateTime?), "{0}.Value", "GetDateTime") },
-                { (int)MySqlDbType.DateTime, ("(DateTime?)", "new DateTime(long.Parse({0}))", "{0}.Ticks.ToString()", "DateTime?", typeof(DateTime), typeof(DateTime?), "{0}.Value", "GetDateTime") },
+                { (int)MySqlDbType.Year, new DbToCs("(int?)", "int.Parse({0})", "{0}.ToString()", "int?", typeof(int), typeof(int?), "{0}.Value", "GetInt32") },
+                { (int)MySqlDbType.Time, new DbToCs("(TimeSpan?)", "TimeSpan.Parse(double.Parse({0}))", "{0}.Ticks.ToString()", "TimeSpan?", typeof(TimeSpan), typeof(TimeSpan?), "{0}.Value", "GetValue") },
+                { (int)MySqlDbType.Date, new DbToCs("(DateTime?)", "new DateTime(long.Parse({0}))", "{0}.Ticks.ToString()", "DateTime?", typeof(DateTime), typeof(DateTime?), "{0}.Value", "GetDateTime") },
+                { (int)MySqlDbType.Timestamp, new DbToCs("(DateTime?)", "new DateTime(long.Parse({0}))", "{0}.Ticks.ToString()", "DateTime?", typeof(DateTime), typeof(DateTime?), "{0}.Value", "GetDateTime") },
+                { (int)MySqlDbType.DateTime, new DbToCs("(DateTime?)", "new DateTime(long.Parse({0}))", "{0}.Ticks.ToString()", "DateTime?", typeof(DateTime), typeof(DateTime?), "{0}.Value", "GetDateTime") },
 
-                { (int)MySqlDbType.TinyBlob, ("(byte[])", "Convert.FromBase64String({0})", "Convert.ToBase64String({0})", "byte[]", typeof(byte[]), typeof(byte[]), "{0}", "GetValue") },
-                { (int)MySqlDbType.Blob, ("(byte[])", "Convert.FromBase64String({0})", "Convert.ToBase64String({0})", "byte[]", typeof(byte[]), typeof(byte[]), "{0}", "GetValue") },
-                { (int)MySqlDbType.MediumBlob, ("(byte[])", "Convert.FromBase64String({0})", "Convert.ToBase64String({0})", "byte[]", typeof(byte[]), typeof(byte[]), "{0}", "GetValue") },
-                { (int)MySqlDbType.LongBlob, ("(byte[])", "Convert.FromBase64String({0})", "Convert.ToBase64String({0})", "byte[]", typeof(byte[]), typeof(byte[]), "{0}", "GetValue") },
+                { (int)MySqlDbType.TinyBlob, new DbToCs("(byte[])", "Convert.FromBase64String({0})", "Convert.ToBase64String({0})", "byte[]", typeof(byte[]), typeof(byte[]), "{0}", "GetValue") },
+                { (int)MySqlDbType.Blob, new DbToCs("(byte[])", "Convert.FromBase64String({0})", "Convert.ToBase64String({0})", "byte[]", typeof(byte[]), typeof(byte[]), "{0}", "GetValue") },
+                { (int)MySqlDbType.MediumBlob, new DbToCs("(byte[])", "Convert.FromBase64String({0})", "Convert.ToBase64String({0})", "byte[]", typeof(byte[]), typeof(byte[]), "{0}", "GetValue") },
+                { (int)MySqlDbType.LongBlob, new DbToCs("(byte[])", "Convert.FromBase64String({0})", "Convert.ToBase64String({0})", "byte[]", typeof(byte[]), typeof(byte[]), "{0}", "GetValue") },
 
-                { (int)MySqlDbType.Binary, ("(byte[])", "Convert.FromBase64String({0})", "Convert.ToBase64String({0})", "byte[]", typeof(byte[]), typeof(byte[]), "{0}", "GetValue") },
-                { (int)MySqlDbType.VarBinary, ("(byte[])", "Convert.FromBase64String({0})", "Convert.ToBase64String({0})", "byte[]", typeof(byte[]), typeof(byte[]), "{0}", "GetValue") },
+                { (int)MySqlDbType.Binary, new DbToCs("(byte[])", "Convert.FromBase64String({0})", "Convert.ToBase64String({0})", "byte[]", typeof(byte[]), typeof(byte[]), "{0}", "GetValue") },
+                { (int)MySqlDbType.VarBinary, new DbToCs("(byte[])", "Convert.FromBase64String({0})", "Convert.ToBase64String({0})", "byte[]", typeof(byte[]), typeof(byte[]), "{0}", "GetValue") },
 
-                { (int)MySqlDbType.TinyText, ("", "{0}.Replace(StringifySplit, \"|\")", "{0}.Replace(\"|\", StringifySplit)", "string", typeof(string), typeof(string), "{0}", "GetString") },
-                { (int)MySqlDbType.Text, ("", "{0}.Replace(StringifySplit, \"|\")", "{0}.Replace(\"|\", StringifySplit)", "string", typeof(string), typeof(string), "{0}", "GetString") },
-                { (int)MySqlDbType.MediumText, ("", "{0}.Replace(StringifySplit, \"|\")", "{0}.Replace(\"|\", StringifySplit)", "string", typeof(string), typeof(string), "{0}", "GetString") },
-                { (int)MySqlDbType.LongText, ("", "{0}.Replace(StringifySplit, \"|\")", "{0}.Replace(\"|\", StringifySplit)", "string", typeof(string), typeof(string), "{0}", "GetString") },
+                { (int)MySqlDbType.TinyText, new DbToCs("", "{0}.Replace(StringifySplit, \"|\")", "{0}.Replace(\"|\", StringifySplit)", "string", typeof(string), typeof(string), "{0}", "GetString") },
+                { (int)MySqlDbType.Text, new DbToCs("", "{0}.Replace(StringifySplit, \"|\")", "{0}.Replace(\"|\", StringifySplit)", "string", typeof(string), typeof(string), "{0}", "GetString") },
+                { (int)MySqlDbType.MediumText, new DbToCs("", "{0}.Replace(StringifySplit, \"|\")", "{0}.Replace(\"|\", StringifySplit)", "string", typeof(string), typeof(string), "{0}", "GetString") },
+                { (int)MySqlDbType.LongText, new DbToCs("", "{0}.Replace(StringifySplit, \"|\")", "{0}.Replace(\"|\", StringifySplit)", "string", typeof(string), typeof(string), "{0}", "GetString") },
 
-                { (int)MySqlDbType.Guid, ("(Guid?)", "Guid.Parse({0})", "{0}.ToString()", "Guid?", typeof(Guid), typeof(Guid?), "{0}", "GetString") },
-                { (int)MySqlDbType.String, ("", "{0}.Replace(StringifySplit, \"|\")", "{0}.Replace(\"|\", StringifySplit)", "string", typeof(string), typeof(string), "{0}", "GetString") },
-                { (int)MySqlDbType.VarString, ("", "{0}.Replace(StringifySplit, \"|\")", "{0}.Replace(\"|\", StringifySplit)", "string", typeof(string), typeof(string), "{0}", "GetString") },
-                { (int)MySqlDbType.VarChar, ("", "{0}.Replace(StringifySplit, \"|\")", "{0}.Replace(\"|\", StringifySplit)", "string", typeof(string), typeof(string), "{0}", "GetString") },
+                { (int)MySqlDbType.Guid, new DbToCs("(Guid?)", "Guid.Parse({0})", "{0}.ToString()", "Guid?", typeof(Guid), typeof(Guid?), "{0}", "GetString") },
+                { (int)MySqlDbType.String, new DbToCs("", "{0}.Replace(StringifySplit, \"|\")", "{0}.Replace(\"|\", StringifySplit)", "string", typeof(string), typeof(string), "{0}", "GetString") },
+                { (int)MySqlDbType.VarString, new DbToCs("", "{0}.Replace(StringifySplit, \"|\")", "{0}.Replace(\"|\", StringifySplit)", "string", typeof(string), typeof(string), "{0}", "GetString") },
+                { (int)MySqlDbType.VarChar, new DbToCs("", "{0}.Replace(StringifySplit, \"|\")", "{0}.Replace(\"|\", StringifySplit)", "string", typeof(string), typeof(string), "{0}", "GetString") },
 
-                { (int)MySqlDbType.Set, ("(long?)", "long.Parse({0})", "{0}.ToInt64().ToString()", "Set", typeof(Enum), typeof(Enum), "{0}", "GetInt64") },
-                { (int)MySqlDbType.Enum, ("(long?)", "long.Parse({0})", "{0}.ToInt64().ToString()", "Enum", typeof(Enum), typeof(Enum), "{0}", "GetInt64") },
+                { (int)MySqlDbType.Set, new DbToCs("(long?)", "long.Parse({0})", "{0}.ToInt64().ToString()", "Set", typeof(Enum), typeof(Enum), "{0}", "GetInt64") },
+                { (int)MySqlDbType.Enum, new DbToCs("(long?)", "long.Parse({0})", "{0}.ToInt64().ToString()", "Enum", typeof(Enum), typeof(Enum), "{0}", "GetInt64") },
 
-                { (int)MySqlDbType.Geometry, ("(MygisGeometry)", "MygisGeometry.Parse({0}.Replace(StringifySplit, \"|\"))", "{0}.AsText().Replace(\"|\", StringifySplit)", "MygisGeometry", typeof(MygisGeometry), typeof(MygisGeometry), "{0}", "GetString") },
+                { (int)MySqlDbType.Geometry, new DbToCs("(MygisGeometry)", "MygisGeometry.Parse({0}.Replace(StringifySplit, \"|\"))", "{0}.AsText().Replace(\"|\", StringifySplit)", "MygisGeometry", typeof(MygisGeometry), typeof(MygisGeometry), "{0}", "GetString") },
             };
 
         public string GetCsConvert(DbColumnInfo column) => _dicDbToCs.TryGetValue(column.DbType, out var trydc) ? (column.IsNullable ? trydc.csConvert : trydc.csConvert.Replace("?", "")) : null;
@@ -142,14 +148,48 @@ namespace FreeSql.MySql
             return ds.Select(a => a.FirstOrDefault()?.ToString()).ToList();
         }
 
-        public List<DbTableInfo> GetTablesByDatabase(params string[] database2)
+        public bool ExistsTable(string name, bool ignoreCase)
+        {
+            if (string.IsNullOrEmpty(name)) return false; 
+            var tbname = _commonUtils.SplitTableName(name);
+            if (tbname?.Length == 1)
+            {
+                var database = "";
+                using (var conn = _orm.Ado.MasterPool.Get(TimeSpan.FromSeconds(5)))
+                {
+                    database = conn.Value.Database;
+                }
+                tbname = new[] { database, tbname[0] };
+            }
+            if (ignoreCase) tbname = tbname.Select(a => a.ToLower()).ToArray();
+            var sql = $" SELECT 1 FROM information_schema.TABLES WHERE {(ignoreCase ? "lower(table_schema)" : "table_schema")} = {_commonUtils.FormatSql("{0}", tbname[0])} and {(ignoreCase ? "lower(table_name)" : "table_name")} = {_commonUtils.FormatSql("{0}", tbname[1])}";
+            return string.Concat(_orm.Ado.ExecuteScalar(CommandType.Text, sql)) == "1";
+        }
+
+        public DbTableInfo GetTableByName(string name, bool ignoreCase = true) => GetTables(null, name, ignoreCase)?.FirstOrDefault();
+        public List<DbTableInfo> GetTablesByDatabase(params string[] database) => GetTables(database, null, false);
+
+        public List<DbTableInfo> GetTables(string[] database, string tablename, bool ignoreCase)
         {
             var loc1 = new List<DbTableInfo>();
             var loc2 = new Dictionary<string, DbTableInfo>();
             var loc3 = new Dictionary<string, Dictionary<string, DbColumnInfo>>();
-            var database = database2?.ToArray();
-
-            if (database == null || database.Any() == false)
+            string[] tbname = null;
+            if (string.IsNullOrEmpty(tablename) == false)
+            {
+                tbname = _commonUtils.SplitTableName(tablename);
+                if (tbname?.Length == 1)
+                {
+                    using (var conn = _orm.Ado.MasterPool.Get(TimeSpan.FromSeconds(5)))
+                    {
+                        if (string.IsNullOrEmpty(conn.Value.Database)) return loc1;
+                        tbname = new[] { conn.Value.Database, tbname[0] };
+                    }
+                }
+                if (ignoreCase) tbname = tbname.Select(a => a.ToLower()).ToArray();
+                database = new[] { tbname[0] };
+            }
+            else if (database == null || database.Any() == false)
             {
                 using (var conn = _orm.Ado.MasterPool.Get())
                 {
@@ -157,8 +197,9 @@ namespace FreeSql.MySql
                     database = new[] { conn.Value.Database };
                 }
             }
+
             var databaseIn = string.Join(",", database.Select(a => _commonUtils.FormatSql("{0}", a)));
-            var sql = string.Format(@"
+            var sql = $@"
 select 
 concat(a.table_schema, '.', a.table_name) 'id',
 a.table_schema 'schema',
@@ -166,12 +207,14 @@ a.table_name 'table',
 a.table_comment,
 a.table_type 'type'
 from information_schema.tables a
-where a.table_schema in ({0})", databaseIn);
+where {(ignoreCase ? "lower(a.table_schema)" : "a.table_schema")} in ({databaseIn}){(tbname == null ? "" : $" and {(ignoreCase ? "lower(a.table_name)" : "a.table_name")}={_commonUtils.FormatSql("{0}", tbname[1])}")}";
             var ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
             if (ds == null) return loc1;
 
-            var loc6 = new List<string>();
-            var loc66 = new List<string>();
+            var loc6 = new List<string[]>();
+            var loc66 = new List<string[]>();
+            var loc6_1000 = new List<string>();
+            var loc66_1000 = new List<string>();
             foreach (var row in ds)
             {
                 var table_id = string.Concat(row[0]);
@@ -190,18 +233,42 @@ where a.table_schema in ({0})", databaseIn);
                 {
                     case DbTableType.TABLE:
                     case DbTableType.VIEW:
-                        loc6.Add(table.Replace("'", "''"));
+                        loc6_1000.Add(table.Replace("'", "''"));
+                        if (loc6_1000.Count >= 500)
+                        {
+                            loc6.Add(loc6_1000.ToArray());
+                            loc6_1000.Clear();
+                        }
                         break;
                     case DbTableType.StoreProcedure:
-                        loc66.Add(table.Replace("'", "''"));
+                        loc66_1000.Add(table.Replace("'", "''"));
+                        if (loc66_1000.Count >= 500)
+                        {
+                            loc66.Add(loc66_1000.ToArray());
+                            loc66_1000.Clear();
+                        }
                         break;
                 }
             }
-            if (loc6.Count == 0) return loc1;
-            var loc8 = "'" + string.Join("','", loc6.ToArray()) + "'";
-            var loc88 = "'" + string.Join("','", loc66.ToArray()) + "'";
+            if (loc6_1000.Count > 0) loc6.Add(loc6_1000.ToArray());
+            if (loc66_1000.Count > 0) loc66.Add(loc66_1000.ToArray());
 
-            sql = string.Format(@"
+            if (loc6.Count == 0) return loc1;
+            var loc8 = new StringBuilder().Append("(");
+            for (var loc8idx = 0; loc8idx < loc6.Count; loc8idx++)
+            {
+                if (loc8idx > 0) loc8.Append(" OR ");
+                loc8.Append("a.table_name in (");
+                for (var loc8idx2 = 0; loc8idx2 < loc6[loc8idx].Length; loc8idx2++)
+                {
+                    if (loc8idx2 > 0) loc8.Append(",");
+                    loc8.Append($"'{loc6[loc8idx][loc8idx2]}'");
+                }
+                loc8.Append(")");
+            }
+            loc8.Append(")");
+
+            sql = $@"
 select
 concat(a.table_schema, '.', a.table_name),
 a.column_name,
@@ -210,13 +277,15 @@ ifnull(a.character_maximum_length, 0) 'len',
 a.column_type,
 case when a.is_nullable = 'YES' then 1 else 0 end 'is_nullable',
 case when locate('auto_increment', a.extra) > 0 then 1 else 0 end 'is_identity',
-a.column_comment 'comment'
+a.column_comment 'comment',
+a.column_default 'default_value'
 from information_schema.columns a
-where a.table_schema in ({1}) and a.table_name in ({0})
-", loc8, databaseIn);
+where {(ignoreCase ? "lower(a.table_schema)" : "a.table_schema")} in ({databaseIn}) and {loc8}
+";
             ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
             if (ds == null) return loc1;
 
+            var position = 0;
             foreach (var row in ds)
             {
                 string table_id = string.Concat(row[0]);
@@ -229,6 +298,7 @@ where a.table_schema in ({1}) and a.table_name in ({0})
                 bool is_nullable = string.Concat(row[5]) == "1";
                 bool is_identity = string.Concat(row[6]) == "1";
                 string comment = string.Concat(row[7]);
+                string defaultValue = string.Concat(row[8]);
                 if (max_length == 0) max_length = -1;
                 if (database.Length == 1)
                 {
@@ -244,29 +314,31 @@ where a.table_schema in ({1}) and a.table_name in ({0})
                     DbTypeText = type,
                     DbTypeTextFull = sqlType,
                     Table = loc2[table_id],
-                    Coment = comment
+                    Coment = comment,
+                    DefaultValue = defaultValue,
+                    Position = ++position
                 });
                 loc3[table_id][column].DbType = this.GetDbType(loc3[table_id][column]);
                 loc3[table_id][column].CsType = this.GetCsTypeInfo(loc3[table_id][column]);
             }
 
-            sql = string.Format(@"
+            sql = $@"
 select 
-concat(a.constraint_schema, '.', a.table_name) 'table_id',
+concat(a.table_schema, '.', a.table_name) 'table_id',
 a.column_name,
-a.constraint_name 'index_id',
-1 'IsUnique',
-case when a.constraint_name = 'PRIMARY' then 1 else 0 end 'IsPrimaryKey',
+a.index_name 'index_id',
+case when a.non_unique = 0 then 1 else 0 end 'IsUnique',
+case when a.index_name = 'PRIMARY' then 1 else 0 end 'IsPrimaryKey',
 0 'IsClustered',
 0 'IsDesc'
-from information_schema.key_column_usage a
-where a.constraint_schema in ({1}) and a.table_name in ({0}) and isnull(position_in_unique_constraint)
-", loc8, databaseIn);
+from information_schema.statistics a
+where {(ignoreCase ? "lower(a.table_schema)" : "a.table_schema")} in ({databaseIn}) and {loc8}
+";
             ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
             if (ds == null) return loc1;
 
-            var indexColumns = new Dictionary<string, Dictionary<string, List<DbColumnInfo>>>();
-            var uniqueColumns = new Dictionary<string, Dictionary<string, List<DbColumnInfo>>>();
+            var indexColumns = new Dictionary<string, Dictionary<string, DbIndexInfo>>();
+            var uniqueColumns = new Dictionary<string, Dictionary<string, DbIndexInfo>>();
             foreach (var row in ds)
             {
                 string table_id = string.Concat(row[0]);
@@ -275,29 +347,27 @@ where a.constraint_schema in ({1}) and a.table_name in ({0}) and isnull(position
                 bool is_unique = string.Concat(row[3]) == "1";
                 bool is_primary_key = string.Concat(row[4]) == "1";
                 bool is_clustered = string.Concat(row[5]) == "1";
-                int is_desc = int.Parse(string.Concat(row[6]));
+                bool is_desc = string.Concat(row[6]) == "1";
                 if (database.Length == 1)
-                {
                     table_id = table_id.Substring(table_id.IndexOf('.') + 1);
-                }
                 if (loc3.ContainsKey(table_id) == false || loc3[table_id].ContainsKey(column) == false) continue;
                 var loc9 = loc3[table_id][column];
                 if (loc9.IsPrimary == false && is_primary_key) loc9.IsPrimary = is_primary_key;
 
-                Dictionary<string, List<DbColumnInfo>> loc10 = null;
-                List<DbColumnInfo> loc11 = null;
+                Dictionary<string, DbIndexInfo> loc10 = null;
+                DbIndexInfo loc11 = null;
                 if (!indexColumns.TryGetValue(table_id, out loc10))
-                    indexColumns.Add(table_id, loc10 = new Dictionary<string, List<DbColumnInfo>>());
+                    indexColumns.Add(table_id, loc10 = new Dictionary<string, DbIndexInfo>());
                 if (!loc10.TryGetValue(index_id, out loc11))
-                    loc10.Add(index_id, loc11 = new List<DbColumnInfo>());
-                loc11.Add(loc9);
+                    loc10.Add(index_id, loc11 = new DbIndexInfo());
+                loc11.Columns.Add(new DbIndexColumnInfo { Column = loc9, IsDesc = is_desc });
                 if (is_unique && !is_primary_key)
                 {
                     if (!uniqueColumns.TryGetValue(table_id, out loc10))
-                        uniqueColumns.Add(table_id, loc10 = new Dictionary<string, List<DbColumnInfo>>());
+                        uniqueColumns.Add(table_id, loc10 = new Dictionary<string, DbIndexInfo>());
                     if (!loc10.TryGetValue(index_id, out loc11))
-                        loc10.Add(index_id, loc11 = new List<DbColumnInfo>());
-                    loc11.Add(loc9);
+                        loc10.Add(index_id, loc11 = new DbIndexInfo());
+                    loc11.Columns.Add(new DbIndexColumnInfo { Column = loc9, IsDesc = is_desc });
                 }
             }
             foreach (string table_id in indexColumns.Keys)
@@ -309,12 +379,14 @@ where a.constraint_schema in ({1}) and a.table_name in ({0}) and isnull(position
             {
                 foreach (var column in uniqueColumns[table_id])
                 {
-                    column.Value.Sort((c1, c2) => c1.Name.CompareTo(c2.Name));
+                    column.Value.Columns.Sort((c1, c2) => c1.Column.Name.CompareTo(c2.Column.Name));
                     loc2[table_id].UniquesDict.Add(column.Key, column.Value);
                 }
             }
 
-            sql = string.Format(@"
+            if (tbname == null)
+            {
+                sql = $@"
 select 
 concat(a.constraint_schema, '.', a.table_name) 'table_id',
 a.column_name,
@@ -323,43 +395,44 @@ concat(a.referenced_table_schema, '.', a.referenced_table_name) 'ref_table_id',
 1 'IsForeignKey',
 a.referenced_column_name 'ref_column'
 from information_schema.key_column_usage a
-where a.constraint_schema in ({1}) and a.table_name in ({0}) and not isnull(position_in_unique_constraint)
-", loc8, databaseIn);
-            ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
-            if (ds == null) return loc1;
+where {(ignoreCase ? "lower(a.constraint_schema)" : "a.constraint_schema")} in ({databaseIn}) and {loc8} and not isnull(position_in_unique_constraint)
+";
+                ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
+                if (ds == null) return loc1;
 
-            var fkColumns = new Dictionary<string, Dictionary<string, DbForeignInfo>>();
-            foreach (var row in ds)
-            {
-                string table_id = string.Concat(row[0]);
-                string column = string.Concat(row[1]);
-                string fk_id = string.Concat(row[2]);
-                string ref_table_id = string.Concat(row[3]);
-                bool is_foreign_key = string.Concat(row[4]) == "1";
-                string referenced_column = string.Concat(row[5]);
-                if (database.Length == 1)
+                var fkColumns = new Dictionary<string, Dictionary<string, DbForeignInfo>>();
+                foreach (var row in ds)
                 {
-                    table_id = table_id.Substring(table_id.IndexOf('.') + 1);
-                    ref_table_id = ref_table_id.Substring(ref_table_id.IndexOf('.') + 1);
-                }
-                if (loc3.ContainsKey(table_id) == false || loc3[table_id].ContainsKey(column) == false) continue;
-                var loc9 = loc3[table_id][column];
-                if (loc2.ContainsKey(ref_table_id) == false) continue;
-                var loc10 = loc2[ref_table_id];
-                var loc11 = loc3[ref_table_id][referenced_column];
+                    string table_id = string.Concat(row[0]);
+                    string column = string.Concat(row[1]);
+                    string fk_id = string.Concat(row[2]);
+                    string ref_table_id = string.Concat(row[3]);
+                    bool is_foreign_key = string.Concat(row[4]) == "1";
+                    string referenced_column = string.Concat(row[5]);
+                    if (database.Length == 1)
+                    {
+                        table_id = table_id.Substring(table_id.IndexOf('.') + 1);
+                        ref_table_id = ref_table_id.Substring(ref_table_id.IndexOf('.') + 1);
+                    }
+                    if (loc3.ContainsKey(table_id) == false || loc3[table_id].ContainsKey(column) == false) continue;
+                    var loc9 = loc3[table_id][column];
+                    if (loc2.ContainsKey(ref_table_id) == false) continue;
+                    var loc10 = loc2[ref_table_id];
+                    var loc11 = loc3[ref_table_id][referenced_column];
 
-                Dictionary<string, DbForeignInfo> loc12 = null;
-                DbForeignInfo loc13 = null;
-                if (!fkColumns.TryGetValue(table_id, out loc12))
-                    fkColumns.Add(table_id, loc12 = new Dictionary<string, DbForeignInfo>());
-                if (!loc12.TryGetValue(fk_id, out loc13))
-                    loc12.Add(fk_id, loc13 = new DbForeignInfo { Table = loc2[table_id], ReferencedTable = loc10 });
-                loc13.Columns.Add(loc9);
-                loc13.ReferencedColumns.Add(loc11);
+                    Dictionary<string, DbForeignInfo> loc12 = null;
+                    DbForeignInfo loc13 = null;
+                    if (!fkColumns.TryGetValue(table_id, out loc12))
+                        fkColumns.Add(table_id, loc12 = new Dictionary<string, DbForeignInfo>());
+                    if (!loc12.TryGetValue(fk_id, out loc13))
+                        loc12.Add(fk_id, loc13 = new DbForeignInfo { Table = loc2[table_id], ReferencedTable = loc10 });
+                    loc13.Columns.Add(loc9);
+                    loc13.ReferencedColumns.Add(loc11);
+                }
+                foreach (var table_id in fkColumns.Keys)
+                    foreach (var fk in fkColumns[table_id])
+                        loc2[table_id].ForeignsDict.Add(fk.Key, fk.Value);
             }
-            foreach (var table_id in fkColumns.Keys)
-                foreach (var fk in fkColumns[table_id])
-                    loc2[table_id].ForeignsDict.Add(fk.Key, fk.Value);
 
             foreach (var table_id in loc3.Keys)
             {
@@ -372,14 +445,14 @@ where a.constraint_schema in ({1}) and a.table_name in ({0}) and not isnull(posi
             }
             foreach (var loc4 in loc2.Values)
             {
-                if (loc4.Primarys.Count == 0 && loc4.UniquesDict.Count > 0)
-                {
-                    foreach (var loc5 in loc4.UniquesDict.First().Value)
-                    {
-                        loc5.IsPrimary = true;
-                        loc4.Primarys.Add(loc5);
-                    }
-                }
+                //if (loc4.Primarys.Count == 0 && loc4.UniquesDict.Count > 0)
+                //{
+                //    foreach (var loc5 in loc4.UniquesDict.First().Value.Columns)
+                //    {
+                //        loc5.Column.IsPrimary = true;
+                //        loc4.Primarys.Add(loc5.Column);
+                //    }
+                //}
                 loc4.Primarys.Sort((c1, c2) => c1.Name.CompareTo(c2.Name));
                 loc4.Columns.Sort((c1, c2) =>
                 {

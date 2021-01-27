@@ -1,4 +1,4 @@
-﻿using SafeObjectPool;
+﻿using FreeSql.Internal.ObjectPool;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -21,6 +21,8 @@ namespace FreeSql.Sqlite
 
         public SqliteConnectionPool(string name, string connectionString, Action availableHandler, Action unavailableHandler) : base(null)
         {
+            this.availableHandler = availableHandler;
+            this.unavailableHandler = unavailableHandler;
             policy = new SqliteConnectionPoolPolicy
             {
                 _pool = this,
@@ -28,9 +30,6 @@ namespace FreeSql.Sqlite
             };
             this.Policy = policy;
             policy.ConnectionString = connectionString;
-
-            this.availableHandler = availableHandler;
-            this.unavailableHandler = unavailableHandler;
         }
 
         public void Return(Object<DbConnection> obj, Exception exception, bool isRecreate = false)
@@ -55,10 +54,10 @@ namespace FreeSql.Sqlite
         public TimeSpan IdleTimeout { get; set; } = TimeSpan.Zero;
         public int AsyncGetCapacity { get; set; } = 10000;
         public bool IsThrowGetTimeoutException { get; set; } = true;
+        public bool IsAutoDisposeWithSystem { get; set; } = true;
         public int CheckAvailableInterval { get; set; } = 5;
         public string[] Attaches = new string[0];
 
-        static ConcurrentDictionary<string, int> dicConnStrIncr = new ConcurrentDictionary<string, int>(StringComparer.CurrentCultureIgnoreCase);
         private string _connectionString;
         public string ConnectionString
         {
@@ -69,12 +68,11 @@ namespace FreeSql.Sqlite
 
                 var pattern = @"Max\s*pool\s*size\s*=\s*(\d+)";
                 Match m = Regex.Match(_connectionString, pattern, RegexOptions.IgnoreCase);
-                if (m.Success == false || int.TryParse(m.Groups[1].Value, out var poolsize) == false || poolsize <= 0) poolsize = 100;
-                var connStrIncr = dicConnStrIncr.AddOrUpdate(_connectionString, 1, (oldkey, oldval) => oldval + 1);
-                PoolSize = poolsize + connStrIncr;
-                _connectionString = m.Success ?
-                    Regex.Replace(_connectionString, pattern, $"Max pool size={PoolSize}", RegexOptions.IgnoreCase) :
-                    $"{_connectionString};Max pool size={PoolSize}";
+                if (m.Success)
+                {
+                    PoolSize = int.Parse(m.Groups[1].Value);
+                    _connectionString = Regex.Replace(_connectionString, pattern, "", RegexOptions.IgnoreCase);
+                }
 
                 pattern = @"Connection\s*LifeTime\s*=\s*(\d+)";
                 m = Regex.Match(_connectionString, pattern, RegexOptions.IgnoreCase);
@@ -93,14 +91,32 @@ namespace FreeSql.Sqlite
                     _connectionString = Regex.Replace(_connectionString, pattern, "", RegexOptions.IgnoreCase);
                 }
 
-                var att = Regex.Split(_connectionString, @"Attachs\s*=\s*", RegexOptions.IgnoreCase);
+                var att = Regex.Split(_connectionString, @"Pooling\s*=\s*", RegexOptions.IgnoreCase);
+                if (att.Length == 2)
+                {
+                    var idx = att[1].IndexOf(';');
+                    _connectionString = string.Concat(att[0], idx == -1 ? "" : att[1].Substring(idx));
+                }
+
+                att = Regex.Split(_connectionString, @"Attachs\s*=\s*", RegexOptions.IgnoreCase);
                 if (att.Length == 2)
                 {
                     var idx = att[1].IndexOf(';');
                     Attaches = (idx == -1 ? att[1] : att[1].Substring(0, idx)).Split(',');
+                    _connectionString = string.Concat(att[0], idx == -1 ? "" : att[1].Substring(idx));
                 }
 
+                if (_connectionString.ToLower().Contains(":memory:"))
+                {
+                    //内存模式
+                    PoolSize = 1;
+                }
+
+#if ns20
+                minPoolSize = 1;
+#endif
                 FreeSql.Internal.CommonUtils.PrevReheatConnectionPool(_pool, minPoolSize);
+
             }
         }
 
@@ -127,6 +143,12 @@ namespace FreeSql.Sqlite
 
             if (_pool.IsAvailable)
             {
+                if (obj.Value == null)
+                {
+                    if (_pool.SetUnavailable(new Exception("连接字符串错误，或者检查项目属性 > 生成 > 目标平台：x86 | x64")) == true)
+                        throw new Exception($"【{this.Name}】连接字符串错误，请检查。或者检查项目属性 > 生成 > 目标平台：x86 | x64");
+                    return;
+                }
 
                 if (obj.Value.State != ConnectionState.Open || DateTime.Now.Subtract(obj.LastReturnTime).TotalSeconds > 60 && obj.Value.Ping() == false)
                 {
@@ -144,11 +166,19 @@ namespace FreeSql.Sqlite
             }
         }
 
+#if net40
+#else
         async public Task OnGetAsync(Object<DbConnection> obj)
         {
 
             if (_pool.IsAvailable)
             {
+                if (obj.Value == null)
+                {
+                    if (_pool.SetUnavailable(new Exception("连接字符串错误")) == true)
+                        throw new Exception($"【{this.Name}】连接字符串错误，请检查。");
+                    return;
+                }
 
                 if (obj.Value.State != ConnectionState.Open || DateTime.Now.Subtract(obj.LastReturnTime).TotalSeconds > 60 && (await obj.Value.PingAsync()) == false)
                 {
@@ -165,6 +195,7 @@ namespace FreeSql.Sqlite
                 }
             }
         }
+#endif
 
         public void OnGetTimeout()
         {
@@ -173,7 +204,7 @@ namespace FreeSql.Sqlite
 
         public void OnReturn(Object<DbConnection> obj)
         {
-
+            //if (obj?.Value != null && obj.Value.State != ConnectionState.Closed) try { obj.Value.Close(); } catch { }
         }
 
         public void OnAvailable()
@@ -200,7 +231,10 @@ namespace FreeSql.Sqlite
         {
             try
             {
-                PingCommand(that).ExecuteNonQuery();
+                using (var cmd = PingCommand(that))
+                {
+                    cmd.ExecuteNonQuery();
+                }
                 return true;
             }
             catch
@@ -210,21 +244,6 @@ namespace FreeSql.Sqlite
                 return false;
             }
         }
-        async public static Task<bool> PingAsync(this DbConnection that, bool isThrow = false)
-        {
-            try
-            {
-                await PingCommand(that).ExecuteNonQueryAsync();
-                return true;
-            }
-            catch
-            {
-                if (that.State != ConnectionState.Closed) try { that.Close(); } catch { }
-                if (isThrow) throw;
-                return false;
-            }
-        }
-
         public static void OpenAndAttach(this DbConnection that, string[] attach)
         {
             that.Open();
@@ -233,11 +252,32 @@ namespace FreeSql.Sqlite
             {
                 var sb = new StringBuilder();
                 foreach (var att in attach)
-                    sb.Append($"attach database [{att}] as [{att.Split('.').First()}];\r\n");
+                    sb.Append($"attach database [{att}] as [{att.Split('/', '\\').Last().Split('.').First()}];\r\n");
 
                 var cmd = that.CreateCommand();
                 cmd.CommandText = sb.ToString();
                 cmd.ExecuteNonQuery();
+                cmd.Dispose();
+            }
+        }
+
+#if net40
+#else
+        async public static Task<bool> PingAsync(this DbConnection that, bool isThrow = false)
+        {
+            try
+            {
+                using (var cmd = PingCommand(that))
+                {
+                    await cmd.ExecuteNonQueryAsync();
+                }
+                return true;
+            }
+            catch
+            {
+                if (that.State != ConnectionState.Closed) try { that.Close(); } catch { }
+                if (isThrow) throw;
+                return false;
             }
         }
         async public static Task OpenAndAttachAsync(this DbConnection that, string[] attach)
@@ -248,12 +288,14 @@ namespace FreeSql.Sqlite
             {
                 var sb = new StringBuilder();
                 foreach (var att in attach)
-                    sb.Append($"attach database [{att}] as [{att.Split('.').First()}];\r\n");
+                    sb.Append($"attach database [{att}] as [{att.Split('/', '\\').Last().Split('.').First()}];\r\n");
 
                 var cmd = that.CreateCommand();
                 cmd.CommandText = sb.ToString();
                 await cmd.ExecuteNonQueryAsync();
+                cmd.Dispose();
             }
         }
+#endif
     }
 }

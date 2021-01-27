@@ -5,8 +5,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.Data.SQLite;
-using System.Linq.Expressions;
-using System.Text;
+using System.Globalization;
 
 namespace FreeSql.Sqlite
 {
@@ -17,7 +16,7 @@ namespace FreeSql.Sqlite
         {
         }
 
-        public override DbParameter AppendParamter(List<DbParameter> _params, string parameterName, Type type, object value)
+        public override DbParameter AppendParamter(List<DbParameter> _params, string parameterName, ColumnInfo col, Type type, object value)
         {
             if (string.IsNullOrEmpty(parameterName)) parameterName = $"p_{_params?.Count}";
             var dbtype = (DbType)_orm.CodeFirst.GetDbInfo(type)?.type;
@@ -34,39 +33,55 @@ namespace FreeSql.Sqlite
                     dbtype = DbType.Int64;
                     break;
             }
-            var ret = new SQLiteParameter { ParameterName = QuoteParamterName(parameterName), DbType = dbtype, Value = value };
+            var ret = new SQLiteParameter();
+            ret.ParameterName = QuoteParamterName(parameterName);
+            ret.DbType = dbtype;
+            ret.Value = value;
             _params?.Add(ret);
             return ret;
         }
 
         public override DbParameter[] GetDbParamtersByObject(string sql, object obj) =>
-            Utils.GetDbParamtersByObject<SQLiteParameter>(sql, obj, "@", (name, type, value) =>
+            Utils.GetDbParamtersByObject<DbParameter>(sql, obj, "@", (name, type, value) =>
             {
-                var dbtype = (DbType)_orm.CodeFirst.GetDbInfo(type)?.type;
-                switch (dbtype)
+                var typeint = _orm.CodeFirst.GetDbInfo(type)?.type;
+                var dbtype = typeint != null ? (DbType?)typeint : null;
+                if (dbtype != null)
                 {
-                    case DbType.Guid:
-                        if (value == null) value = null;
-                        else value = ((Guid)value).ToString();
-                        dbtype = DbType.String;
-                        break;
-                    case DbType.Time:
-                        if (value == null) value = null;
-                        else value = ((TimeSpan)value).Ticks / 10000;
-                        dbtype = DbType.Int64;
-                        break;
+                    switch (dbtype.Value)
+                    {
+                        case DbType.Guid:
+                            if (value == null) value = null;
+                            else value = ((Guid)value).ToString();
+                            dbtype = DbType.String;
+                            break;
+                        case DbType.Time:
+                            if (value == null) value = null;
+                            else value = ((TimeSpan)value).Ticks / 10000;
+                            dbtype = DbType.Int64;
+                            break;
+                    }
                 }
-                var ret = new SQLiteParameter { ParameterName = $"@{name}", DbType = dbtype, Value = value };
+                var ret = new SQLiteParameter();
+                ret.ParameterName = $"@{name}";
+                if (dbtype != null) ret.DbType = dbtype.Value;
+                ret.Value = value;
                 return ret;
             });
 
         public override string FormatSql(string sql, params object[] args) => sql?.FormatSqlite(args);
-        public override string QuoteSqlName(string name)
+        public override string QuoteSqlName(params string[] name)
         {
-            var nametrim = name.Trim();
-            if (nametrim.StartsWith("(") && nametrim.EndsWith(")"))
-                return nametrim; //原生SQL
-            return $"\"{nametrim.Trim('"').Replace(".", "\".\"")}\"";
+            if (name.Length == 1)
+            {
+                var nametrim = name[0].Trim();
+                if (nametrim.StartsWith("(") && nametrim.EndsWith(")"))
+                    return nametrim; //原生SQL
+                if (nametrim.StartsWith("\"") && nametrim.EndsWith("\""))
+                    return nametrim;
+                return $"\"{nametrim.Replace(".", "\".\"")}\"";
+            }
+            return $"\"{string.Join("\".\"", name)}\"";
         }
         public override string TrimQuoteSqlName(string name)
         {
@@ -75,18 +90,27 @@ namespace FreeSql.Sqlite
                 return nametrim; //原生SQL
             return $"{nametrim.Trim('"').Replace("\".\"", ".").Replace(".\"", ".")}";
         }
-        public override string QuoteParamterName(string name) => $"@{(_orm.CodeFirst.IsSyncStructureToLower ? name.ToLower() : name)}";
+        public override string[] SplitTableName(string name) => GetSplitTableNames(name, '"', '"', 2);
+        public override string QuoteParamterName(string name) => $"@{name}";
         public override string IsNull(string sql, object value) => $"ifnull({sql}, {value})";
         public override string StringConcat(string[] objs, Type[] types) => $"{string.Join(" || ", objs)}";
         public override string Mod(string left, string right, Type leftType, Type rightType) => $"{left} % {right}";
+        public override string Div(string left, string right, Type leftType, Type rightType) => $"{left} / {right}";
+        public override string Now => "datetime(current_timestamp,'localtime')";
+        public override string NowUtc => "current_timestamp";
 
-        public override string QuoteWriteParamter(Type type, string paramterName) => paramterName;
-        public override string QuoteReadColumn(Type type, string columnName) => columnName;
+        public override string QuoteWriteParamterAdapter(Type type, string paramterName) => paramterName;
+        protected override string QuoteReadColumnAdapter(Type type, Type mapType, string columnName) => columnName;
 
-        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, Type type, object value)
+        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, string specialParamFlag, ColumnInfo col, Type type, object value)
         {
             if (value == null) return "NULL";
-            if (type == typeof(byte[])) value = Encoding.UTF8.GetString(value as byte[]);
+            if (type.IsNumberType()) return string.Format(CultureInfo.InvariantCulture, "{0}", value);
+            if (type == typeof(byte[]))
+            {
+                var pam = AppendParamter(specialParams, $"p_{specialParams?.Count}{specialParamFlag}", null, type, value);
+                return pam.ParameterName;
+            }
             return FormatSql("{0}", value, 1);
         }
     }
